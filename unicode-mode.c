@@ -33,9 +33,11 @@ unicode_mode_updated(struct terminal *term)
 {
     if (term == NULL)
         return;
-
-    if (term->is_searching)
-        render_refresh_search(term);
+    printf("UNICODE UPDATE\n");
+    if (term->is_vimming)
+        // TODO (kociap): refresh
+        // render_refresh_search(term);
+        (void)0;
     else
         render_refresh(term);
 }
@@ -44,6 +46,7 @@ void
 unicode_mode_input(struct seat *seat, struct terminal *term,
                    xkb_keysym_t sym)
 {
+    printf("UNICODE INPUT\n");
     if (sym == XKB_KEY_Return ||
         sym == XKB_KEY_space ||
         sym == XKB_KEY_KP_Enter ||
@@ -57,8 +60,10 @@ unicode_mode_input(struct seat *seat, struct terminal *term,
                 term->unicode_mode.character, (int)chars, utf8);
 
         if (chars != (size_t)-1) {
-            if (term->is_searching)
-                search_add_chars(term, utf8, chars);
+            if (term->is_vimming)
+                // TODO (kociap): input
+                // search_add_chars(term, utf8, chars);
+                (void)0;
             else
                 term_to_slave(term, utf8, chars);
         }

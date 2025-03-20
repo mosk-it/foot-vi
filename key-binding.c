@@ -111,7 +111,7 @@ key_binding_new_for_seat(struct key_binding_manager *mgr,
         struct key_set set = {
             .public = {
                 .key = tll_init(),
-                .search = tll_init(),
+                .vimode = tll_init(),
                 .url = tll_init(),
                 .mouse = tll_init(),
             },
@@ -152,7 +152,7 @@ key_binding_new_for_conf(struct key_binding_manager *mgr,
         struct key_set set = {
             .public = {
                 .key = tll_init(),
-                .search = tll_init(),
+                .vimode = tll_init(),
                 .url = tll_init(),
                 .mouse = tll_init(),
             },
@@ -532,13 +532,25 @@ convert_key_bindings(struct key_set *set)
 }
 
 static void
-convert_search_bindings(struct key_set *set)
+convert_vimode_bindings(struct key_set *set)
 {
     const struct config *conf = set->conf;
 
-    for (size_t i = 0; i < conf->bindings.search.count; i++) {
-        const struct config_key_binding *binding = &conf->bindings.search.arr[i];
-        convert_key_binding(set, binding, &set->public.search);
+    for (size_t i = 0; i < conf->bindings.vimode.count; i++) {
+        const struct config_key_binding *binding = &conf->bindings.vimode.arr[i];
+        convert_key_binding(set, binding, &set->public.vimode);
+    }
+}
+
+static void
+convert_vimode_search_bindings(struct key_set *set)
+{
+    const struct config *conf = set->conf;
+
+    for (size_t i = 0; i < conf->bindings.vimode_search.count; i++) {
+        const struct config_key_binding *binding = 
+            &conf->bindings.vimode_search.arr[i];
+        convert_key_binding(set, binding, &set->public.vimode_search);
     }
 }
 
@@ -597,7 +609,8 @@ load_keymap(struct key_set *set)
     }
 
     convert_key_bindings(set);
-    convert_search_bindings(set);
+    convert_vimode_bindings(set);
+    convert_vimode_search_bindings(set);
     convert_url_bindings(set);
     convert_mouse_bindings(set);
 
@@ -638,7 +651,8 @@ static void NOINLINE
 unload_keymap(struct key_set *set)
 {
     key_bindings_destroy(&set->public.key);
-    key_bindings_destroy(&set->public.search);
+    key_bindings_destroy(&set->public.vimode);
+    key_bindings_destroy(&set->public.vimode_search);
     key_bindings_destroy(&set->public.url);
     key_bindings_destroy(&set->public.mouse);
     set->public.selection_overrides = 0;

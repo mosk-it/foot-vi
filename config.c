@@ -14,6 +14,8 @@
 #include <sys/stat.h>
 
 #include <linux/input-event-codes.h>
+#include <xkbcommon/xkbcommon-keysyms.h>
+#include <xkbcommon/xkbcommon-names.h>
 #include <xkbcommon/xkbcommon.h>
 #include <fontconfig/fontconfig.h>
 
@@ -120,7 +122,8 @@ static const char *const binding_action_map[] = {
     [BIND_ACTION_CLIPBOARD_COPY] = "clipboard-copy",
     [BIND_ACTION_CLIPBOARD_PASTE] = "clipboard-paste",
     [BIND_ACTION_PRIMARY_PASTE] = "primary-paste",
-    [BIND_ACTION_SEARCH_START] = "search-start",
+    [BIND_ACTION_START_VIMODE] = "start-vimode",
+    [BIND_ACTION_START_VIMODE_SEARCH] = "start-vimode-search",
     [BIND_ACTION_FONT_SIZE_UP] = "font-increase",
     [BIND_ACTION_FONT_SIZE_DOWN] = "font-decrease",
     [BIND_ACTION_FONT_SIZE_RESET] = "font-reset",
@@ -161,43 +164,37 @@ static const char *const binding_action_map[] = {
     [BIND_ACTION_SELECT_ROW] = "select-row",
 };
 
-static const char *const search_binding_action_map[] = {
-    [BIND_ACTION_SEARCH_NONE] = NULL,
-    [BIND_ACTION_SEARCH_SCROLLBACK_UP_PAGE] = "scrollback-up-page",
-    [BIND_ACTION_SEARCH_SCROLLBACK_UP_HALF_PAGE] = "scrollback-up-half-page",
-    [BIND_ACTION_SEARCH_SCROLLBACK_UP_LINE] = "scrollback-up-line",
-    [BIND_ACTION_SEARCH_SCROLLBACK_DOWN_PAGE] = "scrollback-down-page",
-    [BIND_ACTION_SEARCH_SCROLLBACK_DOWN_HALF_PAGE] = "scrollback-down-half-page",
-    [BIND_ACTION_SEARCH_SCROLLBACK_DOWN_LINE] = "scrollback-down-line",
-    [BIND_ACTION_SEARCH_SCROLLBACK_HOME] = "scrollback-home",
-    [BIND_ACTION_SEARCH_SCROLLBACK_END] = "scrollback-end",
-    [BIND_ACTION_SEARCH_CANCEL] = "cancel",
-    [BIND_ACTION_SEARCH_COMMIT] = "commit",
-    [BIND_ACTION_SEARCH_FIND_PREV] = "find-prev",
-    [BIND_ACTION_SEARCH_FIND_NEXT] = "find-next",
-    [BIND_ACTION_SEARCH_EDIT_LEFT] = "cursor-left",
-    [BIND_ACTION_SEARCH_EDIT_LEFT_WORD] = "cursor-left-word",
-    [BIND_ACTION_SEARCH_EDIT_RIGHT] = "cursor-right",
-    [BIND_ACTION_SEARCH_EDIT_RIGHT_WORD] = "cursor-right-word",
-    [BIND_ACTION_SEARCH_EDIT_HOME] = "cursor-home",
-    [BIND_ACTION_SEARCH_EDIT_END] = "cursor-end",
-    [BIND_ACTION_SEARCH_DELETE_PREV] = "delete-prev",
-    [BIND_ACTION_SEARCH_DELETE_PREV_WORD] = "delete-prev-word",
-    [BIND_ACTION_SEARCH_DELETE_NEXT] = "delete-next",
-    [BIND_ACTION_SEARCH_DELETE_NEXT_WORD] = "delete-next-word",
-    [BIND_ACTION_SEARCH_DELETE_TO_START] = "delete-to-start",
-    [BIND_ACTION_SEARCH_DELETE_TO_END] = "delete-to-end",
-    [BIND_ACTION_SEARCH_EXTEND_CHAR] = "extend-char",
-    [BIND_ACTION_SEARCH_EXTEND_WORD] = "extend-to-word-boundary",
-    [BIND_ACTION_SEARCH_EXTEND_WORD_WS] = "extend-to-next-whitespace",
-    [BIND_ACTION_SEARCH_EXTEND_LINE_DOWN] = "extend-line-down",
-    [BIND_ACTION_SEARCH_EXTEND_BACKWARD_CHAR] = "extend-backward-char",
-    [BIND_ACTION_SEARCH_EXTEND_BACKWARD_WORD] = "extend-backward-to-word-boundary",
-    [BIND_ACTION_SEARCH_EXTEND_BACKWARD_WORD_WS] = "extend-backward-to-next-whitespace",
-    [BIND_ACTION_SEARCH_EXTEND_LINE_UP] = "extend-line-up",
-    [BIND_ACTION_SEARCH_CLIPBOARD_PASTE] = "clipboard-paste",
-    [BIND_ACTION_SEARCH_PRIMARY_PASTE] = "primary-paste",
-    [BIND_ACTION_SEARCH_UNICODE_INPUT] = "unicode-input",
+static const char *const vimode_binding_action_map[] = {
+    [BIND_ACTION_VIMODE_NONE] = NULL,
+    [BIND_ACTION_VIMODE_UP] = "vimode-up",
+    [BIND_ACTION_VIMODE_DOWN] = "vimode-down",
+    [BIND_ACTION_VIMODE_LEFT] = "vimode-left",
+    [BIND_ACTION_VIMODE_RIGHT] = "vimode-right",
+    [BIND_ACTION_VIMODE_UP_PAGE] = "vimode-up-page",
+    [BIND_ACTION_VIMODE_DOWN_PAGE] = "vimode-down-page",
+    [BIND_ACTION_VIMODE_UP_HALF_PAGE] = "vimode-up-half-page",
+    [BIND_ACTION_VIMODE_DOWN_HALF_PAGE] = "vimode-down-half-page",
+    [BIND_ACTION_VIMODE_UP_LINE] = "vimode-up-line",
+    [BIND_ACTION_VIMODE_DOWN_LINE] = "vimode-down-line",
+    [BIND_ACTION_VIMODE_FIRST_LINE] = "vimode-first-line",
+    [BIND_ACTION_VIMODE_LAST_LINE] = "vimode-last-line",
+    [BIND_ACTION_VIMODE_CANCEL] = "vimode-cancel",
+    [BIND_ACTION_VIMODE_START_SEARCH] = "vimode-start-search",
+    [BIND_ACTION_VIMODE_FIND_NEXT] = "vimode-find-next",
+    [BIND_ACTION_VIMODE_FIND_PREV] = "vimode-find-prev",
+    [BIND_ACTION_VIMODE_ENTER_VISUAL] = "vimode-enter-visual",
+    [BIND_ACTION_VIMODE_ENTER_VLINE] = "vimode-enter-visual-line",
+    [BIND_ACTION_VIMODE_ENTER_VBLOCK] = "vimode-enter-visual-block",
+    [BIND_ACTION_VIMODE_YANK] = "vimode-yank",
+};
+
+static const char *const vimode_search_binding_action_map[] = {
+    [BIND_ACTION_VIMODE_NONE] = NULL,
+    [BIND_ACTION_VIMODE_SEARCH_CANCEL] = "vimode-search-cancel",
+    [BIND_ACTION_VIMODE_SEARCH_CONFIRM] = "vimode-search-confirm",
+    [BIND_ACTION_VIMODE_SEARCH_DELETE_PREV_CHAR] = "vimode-search-delete-prev",
+    [BIND_ACTION_VIMODE_SEARCH_LEFT] = "vimode-search-left",
+    [BIND_ACTION_VIMODE_SEARCH_RIGHT] = "vimode-search-right",
 };
 
 static const char *const url_binding_action_map[] = {
@@ -208,8 +205,10 @@ static const char *const url_binding_action_map[] = {
 
 static_assert(ALEN(binding_action_map) == BIND_ACTION_COUNT,
               "binding action map size mismatch");
-static_assert(ALEN(search_binding_action_map) == BIND_ACTION_SEARCH_COUNT,
-              "search binding action map size mismatch");
+static_assert(ALEN(vimode_binding_action_map) == BIND_ACTION_VIMODE_COUNT,
+              "vimode binding action map size mismatch");
+static_assert(ALEN(vimode_search_binding_action_map) == BIND_ACTION_VIMODE_SEARCH_COUNT,
+              "vimode-search binding action map size mismatch");
 static_assert(ALEN(url_binding_action_map) == BIND_ACTION_URL_COUNT,
               "URL binding action map size mismatch");
 
@@ -2451,12 +2450,21 @@ parse_section_key_bindings(struct context *ctx)
 }
 
 static bool
-parse_section_search_bindings(struct context *ctx)
+parse_section_vimode_bindings(struct context *ctx)
 {
     return parse_key_binding_section(
         ctx,
-        BIND_ACTION_SEARCH_COUNT, search_binding_action_map,
-        &ctx->conf->bindings.search);
+        BIND_ACTION_VIMODE_COUNT, vimode_binding_action_map,
+        &ctx->conf->bindings.vimode);
+}
+
+static bool
+parse_section_vimode_search_bindings(struct context *ctx)
+{
+    return parse_key_binding_section(
+        ctx,
+        BIND_ACTION_VIMODE_SEARCH_COUNT, vimode_search_binding_action_map,
+        &ctx->conf->bindings.vimode_search);
 }
 
 static bool
@@ -3027,7 +3035,8 @@ enum section {
     SECTION_MOUSE,
     SECTION_CSD,
     SECTION_KEY_BINDINGS,
-    SECTION_SEARCH_BINDINGS,
+    SECTION_VIMODE_BINDINGS,
+    SECTION_VIMODE_SEARCH_BINDINGS,
     SECTION_URL_BINDINGS,
     SECTION_MOUSE_BINDINGS,
     SECTION_TEXT_BINDINGS,
@@ -3063,7 +3072,8 @@ static const struct {
     [SECTION_MOUSE] =           {&parse_section_mouse, "mouse"},
     [SECTION_CSD] =             {&parse_section_csd, "csd"},
     [SECTION_KEY_BINDINGS] =    {&parse_section_key_bindings, "key-bindings"},
-    [SECTION_SEARCH_BINDINGS] = {&parse_section_search_bindings, "search-bindings"},
+    [SECTION_VIMODE_BINDINGS] = {&parse_section_vimode_bindings, "vimode-bindings"},
+    [SECTION_VIMODE_SEARCH_BINDINGS] = {&parse_section_vimode_search_bindings, "vimode-search-bindings"},
     [SECTION_URL_BINDINGS] =    {&parse_section_url_bindings, "url-bindings"},
     [SECTION_MOUSE_BINDINGS] =  {&parse_section_mouse_bindings, "mouse-bindings"},
     [SECTION_TEXT_BINDINGS] =   {&parse_section_text_bindings, "text-bindings"},
@@ -3306,7 +3316,8 @@ add_default_key_bindings(struct config *conf)
         {BIND_ACTION_CLIPBOARD_PASTE, m(XKB_MOD_NAME_CTRL "+" XKB_MOD_NAME_SHIFT), {{XKB_KEY_v}}},
         {BIND_ACTION_CLIPBOARD_PASTE, m("none"), {{XKB_KEY_XF86Paste}}},
         {BIND_ACTION_PRIMARY_PASTE, m(XKB_MOD_NAME_SHIFT), {{XKB_KEY_Insert}}},
-        {BIND_ACTION_SEARCH_START, m(XKB_MOD_NAME_CTRL "+" XKB_MOD_NAME_SHIFT), {{XKB_KEY_r}}},
+        {BIND_ACTION_START_VIMODE, m(XKB_MOD_NAME_CTRL "+" XKB_MOD_NAME_SHIFT), {{XKB_KEY_r}}},
+        {BIND_ACTION_START_VIMODE_SEARCH, m(XKB_MOD_NAME_CTRL "+" XKB_MOD_NAME_SHIFT), {{XKB_KEY_slash}}},
         {BIND_ACTION_FONT_SIZE_UP, m(XKB_MOD_NAME_CTRL), {{XKB_KEY_plus}}},
         {BIND_ACTION_FONT_SIZE_UP, m(XKB_MOD_NAME_CTRL), {{XKB_KEY_equal}}},
         {BIND_ACTION_FONT_SIZE_UP, m(XKB_MOD_NAME_CTRL), {{XKB_KEY_KP_Add}}},
@@ -3327,57 +3338,51 @@ add_default_key_bindings(struct config *conf)
 
 
 static void
-add_default_search_bindings(struct config *conf)
+add_default_vimode_bindings(struct config *conf)
 {
     const struct config_key_binding bindings[] = {
-        {BIND_ACTION_SEARCH_SCROLLBACK_UP_PAGE, m(XKB_MOD_NAME_SHIFT), {{XKB_KEY_Prior}}},
-        {BIND_ACTION_SEARCH_SCROLLBACK_UP_PAGE, m(XKB_MOD_NAME_SHIFT), {{XKB_KEY_KP_Prior}}},
-        {BIND_ACTION_SEARCH_SCROLLBACK_DOWN_PAGE, m(XKB_MOD_NAME_SHIFT), {{XKB_KEY_Next}}},
-        {BIND_ACTION_SEARCH_SCROLLBACK_DOWN_PAGE, m(XKB_MOD_NAME_SHIFT), {{XKB_KEY_KP_Next}}},
-        {BIND_ACTION_SEARCH_CANCEL, m(XKB_MOD_NAME_CTRL), {{XKB_KEY_c}}},
-        {BIND_ACTION_SEARCH_CANCEL, m(XKB_MOD_NAME_CTRL), {{XKB_KEY_g}}},
-        {BIND_ACTION_SEARCH_CANCEL, m("none"), {{XKB_KEY_Escape}}},
-        {BIND_ACTION_SEARCH_COMMIT, m("none"), {{XKB_KEY_Return}}},
-        {BIND_ACTION_SEARCH_COMMIT, m("none"), {{XKB_KEY_KP_Enter}}},
-        {BIND_ACTION_SEARCH_FIND_PREV, m(XKB_MOD_NAME_CTRL), {{XKB_KEY_r}}},
-        {BIND_ACTION_SEARCH_FIND_NEXT, m(XKB_MOD_NAME_CTRL), {{XKB_KEY_s}}},
-        {BIND_ACTION_SEARCH_EDIT_LEFT, m("none"), {{XKB_KEY_Left}}},
-        {BIND_ACTION_SEARCH_EDIT_LEFT, m(XKB_MOD_NAME_CTRL), {{XKB_KEY_b}}},
-        {BIND_ACTION_SEARCH_EDIT_LEFT_WORD, m(XKB_MOD_NAME_CTRL), {{XKB_KEY_Left}}},
-        {BIND_ACTION_SEARCH_EDIT_LEFT_WORD, m(XKB_MOD_NAME_ALT), {{XKB_KEY_b}}},
-        {BIND_ACTION_SEARCH_EDIT_RIGHT, m("none"), {{XKB_KEY_Right}}},
-        {BIND_ACTION_SEARCH_EDIT_RIGHT, m(XKB_MOD_NAME_CTRL), {{XKB_KEY_f}}},
-        {BIND_ACTION_SEARCH_EDIT_RIGHT_WORD, m(XKB_MOD_NAME_CTRL), {{XKB_KEY_Right}}},
-        {BIND_ACTION_SEARCH_EDIT_RIGHT_WORD, m(XKB_MOD_NAME_ALT), {{XKB_KEY_f}}},
-        {BIND_ACTION_SEARCH_EDIT_HOME, m("none"), {{XKB_KEY_Home}}},
-        {BIND_ACTION_SEARCH_EDIT_HOME, m(XKB_MOD_NAME_CTRL), {{XKB_KEY_a}}},
-        {BIND_ACTION_SEARCH_EDIT_END, m("none"), {{XKB_KEY_End}}},
-        {BIND_ACTION_SEARCH_EDIT_END, m(XKB_MOD_NAME_CTRL), {{XKB_KEY_e}}},
-        {BIND_ACTION_SEARCH_DELETE_PREV, m("none"), {{XKB_KEY_BackSpace}}},
-        {BIND_ACTION_SEARCH_DELETE_PREV_WORD, m(XKB_MOD_NAME_CTRL), {{XKB_KEY_BackSpace}}},
-        {BIND_ACTION_SEARCH_DELETE_PREV_WORD, m(XKB_MOD_NAME_ALT), {{XKB_KEY_BackSpace}}},
-        {BIND_ACTION_SEARCH_DELETE_NEXT, m("none"), {{XKB_KEY_Delete}}},
-        {BIND_ACTION_SEARCH_DELETE_NEXT_WORD, m(XKB_MOD_NAME_CTRL), {{XKB_KEY_Delete}}},
-        {BIND_ACTION_SEARCH_DELETE_NEXT_WORD, m(XKB_MOD_NAME_ALT), {{XKB_KEY_d}}},
-        {BIND_ACTION_SEARCH_DELETE_TO_START, m(XKB_MOD_NAME_CTRL), {{XKB_KEY_u}}},
-        {BIND_ACTION_SEARCH_DELETE_TO_END, m(XKB_MOD_NAME_CTRL), {{XKB_KEY_k}}},
-        {BIND_ACTION_SEARCH_EXTEND_CHAR, m(XKB_MOD_NAME_SHIFT), {{XKB_KEY_Right}}},
-        {BIND_ACTION_SEARCH_EXTEND_WORD, m(XKB_MOD_NAME_CTRL "+" XKB_MOD_NAME_SHIFT), {{XKB_KEY_Right}}},
-        {BIND_ACTION_SEARCH_EXTEND_WORD, m(XKB_MOD_NAME_CTRL), {{XKB_KEY_w}}},
-        {BIND_ACTION_SEARCH_EXTEND_WORD_WS, m(XKB_MOD_NAME_CTRL "+" XKB_MOD_NAME_SHIFT), {{XKB_KEY_w}}},
-        {BIND_ACTION_SEARCH_EXTEND_LINE_DOWN, m(XKB_MOD_NAME_SHIFT), {{XKB_KEY_Down}}},
-        {BIND_ACTION_SEARCH_EXTEND_BACKWARD_CHAR, m(XKB_MOD_NAME_SHIFT), {{XKB_KEY_Left}}},
-        {BIND_ACTION_SEARCH_EXTEND_BACKWARD_WORD, m(XKB_MOD_NAME_CTRL "+" XKB_MOD_NAME_SHIFT), {{XKB_KEY_Left}}},
-        {BIND_ACTION_SEARCH_EXTEND_LINE_UP, m(XKB_MOD_NAME_SHIFT), {{XKB_KEY_Up}}},
-        {BIND_ACTION_SEARCH_CLIPBOARD_PASTE, m(XKB_MOD_NAME_CTRL), {{XKB_KEY_v}}},
-        {BIND_ACTION_SEARCH_CLIPBOARD_PASTE, m(XKB_MOD_NAME_CTRL "+" XKB_MOD_NAME_SHIFT), {{XKB_KEY_v}}},
-        {BIND_ACTION_SEARCH_CLIPBOARD_PASTE, m(XKB_MOD_NAME_CTRL), {{XKB_KEY_y}}},
-        {BIND_ACTION_SEARCH_CLIPBOARD_PASTE, m("none"), {{XKB_KEY_XF86Paste}}},
-        {BIND_ACTION_SEARCH_PRIMARY_PASTE, m(XKB_MOD_NAME_SHIFT), {{XKB_KEY_Insert}}},
+        {BIND_ACTION_VIMODE_UP, m("none"), {{XKB_KEY_k}}},
+        {BIND_ACTION_VIMODE_DOWN, m("none"), {{XKB_KEY_j}}},
+        {BIND_ACTION_VIMODE_LEFT, m("none"), {{XKB_KEY_h}}},
+        {BIND_ACTION_VIMODE_RIGHT, m("none"), {{XKB_KEY_l}}},
+        {BIND_ACTION_VIMODE_UP_PAGE, m(XKB_MOD_NAME_CTRL), {{XKB_KEY_b}}},
+        {BIND_ACTION_VIMODE_DOWN_PAGE, m(XKB_MOD_NAME_CTRL), {{XKB_KEY_f}}},
+        {BIND_ACTION_VIMODE_UP_HALF_PAGE, m(XKB_MOD_NAME_CTRL), {{XKB_KEY_u}}},
+        {BIND_ACTION_VIMODE_DOWN_HALF_PAGE, m(XKB_MOD_NAME_CTRL), {{XKB_KEY_d}}},
+        {BIND_ACTION_VIMODE_UP_LINE, m(XKB_MOD_NAME_CTRL), {{XKB_KEY_y}}},
+        {BIND_ACTION_VIMODE_DOWN_LINE, m(XKB_MOD_NAME_CTRL), {{XKB_KEY_e}}},
+        {BIND_ACTION_VIMODE_FIRST_LINE, m("none"), {{XKB_KEY_g}}},
+        {BIND_ACTION_VIMODE_LAST_LINE, m(XKB_MOD_NAME_SHIFT), {{XKB_KEY_g}}},
+        {BIND_ACTION_VIMODE_CANCEL, m(XKB_MOD_NAME_CTRL), {{XKB_KEY_c}}},
+        {BIND_ACTION_VIMODE_CANCEL, m("none"), {{XKB_KEY_Escape}}},
+        {BIND_ACTION_VIMODE_START_SEARCH, m("none"), {{XKB_KEY_slash}}},
+        {BIND_ACTION_VIMODE_FIND_NEXT, m("none"), {{XKB_KEY_n}}},
+        {BIND_ACTION_VIMODE_FIND_PREV, m(XKB_MOD_NAME_SHIFT), {{XKB_KEY_n}}},
+        {BIND_ACTION_VIMODE_ENTER_VISUAL, m("none"), {{XKB_KEY_v}}},
+        {BIND_ACTION_VIMODE_ENTER_VLINE, m(XKB_MOD_NAME_SHIFT), {{XKB_KEY_v}}},
+        {BIND_ACTION_VIMODE_ENTER_VBLOCK, m(XKB_MOD_NAME_CTRL), {{XKB_KEY_v}}},
+        {BIND_ACTION_VIMODE_YANK, m("none"), {{XKB_KEY_y}}},
     };
 
-    conf->bindings.search.count = ALEN(bindings);
-    conf->bindings.search.arr = xmemdup(bindings, sizeof(bindings));
+    conf->bindings.vimode.count = ALEN(bindings);
+    conf->bindings.vimode.arr = xmemdup(bindings, sizeof(bindings));
+}
+
+static void
+add_default_vimode_search_bindings(struct config *conf)
+{
+    const struct config_key_binding bindings[] = {
+        {BIND_ACTION_VIMODE_SEARCH_CONFIRM, m("none"), {{XKB_KEY_Return}}},
+        {BIND_ACTION_VIMODE_SEARCH_CANCEL, m("none"), {{XKB_KEY_Escape}}},
+        {BIND_ACTION_VIMODE_SEARCH_DELETE_PREV_CHAR, m("none"), {{XKB_KEY_BackSpace}}},
+        {BIND_ACTION_VIMODE_SEARCH_LEFT, m(XKB_MOD_NAME_CTRL), {{XKB_KEY_h}}},
+        {BIND_ACTION_VIMODE_SEARCH_LEFT, m("none"), {{XKB_KEY_leftarrow}}},
+        {BIND_ACTION_VIMODE_SEARCH_RIGHT, m(XKB_MOD_NAME_CTRL), {{XKB_KEY_l}}},
+        {BIND_ACTION_VIMODE_SEARCH_RIGHT, m("none"), {{XKB_KEY_rightarrow}}},
+    };
+
+    conf->bindings.vimode_search.count = ALEN(bindings);
+    conf->bindings.vimode_search.arr = xmemdup(bindings, sizeof(bindings));
 }
 
 static void
@@ -3674,7 +3679,8 @@ config_load(struct config *conf, const char *conf_path,
     }
 
     add_default_key_bindings(conf);
-    add_default_search_bindings(conf);
+    add_default_vimode_bindings(conf);
+    add_default_vimode_search_bindings(conf);
     add_default_url_bindings(conf);
     add_default_mouse_bindings(conf);
 
@@ -3733,8 +3739,10 @@ config_load(struct config *conf, const char *conf_path,
 #if defined(_DEBUG)
     for (size_t i = 0; i < conf->bindings.key.count; i++)
         xassert(conf->bindings.key.arr[i].action != BIND_ACTION_NONE);
-    for (size_t i = 0; i < conf->bindings.search.count; i++)
-        xassert(conf->bindings.search.arr[i].action != BIND_ACTION_SEARCH_NONE);
+    for (size_t i = 0; i < conf->bindings.vimode.count; i++)
+        xassert(conf->bindings.vimode.arr[i].action != BIND_ACTION_VIMODE_NONE);
+    for (size_t i = 0; i < conf->bindings.vimode_search.count; i++)
+        xassert(conf->bindings.vimode_search.arr[i].action != BIND_ACTION_VIMODE_SEARCH_NONE);
     for (size_t i = 0; i < conf->bindings.url.count; i++)
         xassert(conf->bindings.url.arr[i].action != BIND_ACTION_URL_NONE);
 #endif
@@ -3810,8 +3818,11 @@ config_override_apply(struct config *conf, config_override_t *overrides,
             conf, section_info[SECTION_KEY_BINDINGS].name,
             binding_action_map, &conf->bindings.key, KEY_BINDING) &&
         resolve_key_binding_collisions(
-            conf, section_info[SECTION_SEARCH_BINDINGS].name,
-            search_binding_action_map, &conf->bindings.search, KEY_BINDING) &&
+            conf, section_info[SECTION_VIMODE_BINDINGS].name,
+            vimode_binding_action_map, &conf->bindings.vimode, KEY_BINDING) &&
+        resolve_key_binding_collisions(
+            conf, section_info[SECTION_VIMODE_SEARCH_BINDINGS].name,
+            vimode_search_binding_action_map, &conf->bindings.vimode_search, KEY_BINDING) &&
         resolve_key_binding_collisions(
             conf, section_info[SECTION_URL_BINDINGS].name,
             url_binding_action_map, &conf->bindings.url, KEY_BINDING) &&
@@ -3935,7 +3946,8 @@ config_clone(const struct config *old)
     }
 
     key_binding_list_clone(&conf->bindings.key, &old->bindings.key);
-    key_binding_list_clone(&conf->bindings.search, &old->bindings.search);
+    key_binding_list_clone(&conf->bindings.vimode, &old->bindings.vimode);
+    key_binding_list_clone(&conf->bindings.vimode_search, &old->bindings.vimode_search);
     key_binding_list_clone(&conf->bindings.url, &old->bindings.url);
     key_binding_list_clone(&conf->bindings.mouse, &old->bindings.mouse);
 
@@ -4027,7 +4039,8 @@ config_free(struct config *conf)
     }
 
     free_key_binding_list(&conf->bindings.key);
-    free_key_binding_list(&conf->bindings.search);
+    free_key_binding_list(&conf->bindings.vimode);
+    free_key_binding_list(&conf->bindings.vimode_search);
     free_key_binding_list(&conf->bindings.url);
     free_key_binding_list(&conf->bindings.mouse);
     tll_free_and_free(conf->mouse.selection_override_modifiers, free);

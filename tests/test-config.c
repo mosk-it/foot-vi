@@ -1252,22 +1252,22 @@ test_section_key_bindings_collisions(void)
 }
 
 static void
-test_section_search_bindings(void)
+test_section_vimode_bindings(void)
 {
     struct config conf = {0};
     struct context ctx = {
-        .conf = &conf, .section = "search-bindings", .path = "unittest"};
+        .conf = &conf, .section = "vimode-bindings", .path = "unittest"};
 
-    test_invalid_key(&ctx, &parse_section_search_bindings, "invalid-key");
+    test_invalid_key(&ctx, &parse_section_vimode_bindings, "invalid-key");
 
-    for (int action = 0; action < BIND_ACTION_SEARCH_COUNT; action++) {
-        if (search_binding_action_map[action] == NULL)
+    for (int action = 0; action < BIND_ACTION_VIMODE_COUNT; action++) {
+        if (vimode_binding_action_map[action] == NULL)
             continue;
 
         test_key_binding(
-            &ctx, &parse_section_search_bindings,
-            action, BIND_ACTION_SEARCH_COUNT - 1,
-            search_binding_action_map, &conf.bindings.search, KEY_BINDING,
+            &ctx, &parse_section_vimode_bindings,
+            action, BIND_ACTION_VIMODE_COUNT - 1,
+            vimode_binding_action_map, &conf.bindings.vimode, KEY_BINDING,
             false, false);
     }
 
@@ -1275,15 +1275,52 @@ test_section_search_bindings(void)
 }
 
 static void
-test_section_search_bindings_collisions(void)
+test_section_vimode_search_bindings(void)
 {
     struct config conf = {0};
     struct context ctx = {
-        .conf = &conf, .section = "search-bindings", .path = "unittest"};
+        .conf = &conf, .section = "vimode-search-bindings", .path = "unittest"};
+
+    test_invalid_key(&ctx, &parse_section_vimode_search_bindings, "invalid-key");
+
+    for (int action = 0; action < BIND_ACTION_VIMODE_COUNT; action++) {
+        if (vimode_search_binding_action_map[action] == NULL)
+            continue;
+
+        test_key_binding(
+            &ctx, &parse_section_vimode_search_bindings,
+            action, BIND_ACTION_VIMODE_COUNT - 1,
+            vimode_search_binding_action_map, &conf.bindings.vimode_search, KEY_BINDING,
+            false, false);
+    }
+
+    config_free(&conf);
+}
+
+static void
+test_section_vimode_bindings_collisions(void)
+{
+    struct config conf = {0};
+    struct context ctx = {
+        .conf = &conf, .section = "vimode-bindings", .path = "unittest"};
 
     test_binding_collisions(
         &ctx,
-        BIND_ACTION_SEARCH_COUNT - 1, search_binding_action_map, KEY_BINDING);
+        BIND_ACTION_VIMODE_COUNT - 1, vimode_binding_action_map, KEY_BINDING);
+
+    config_free(&conf);
+}
+
+static void
+test_section_vimode_search_bindings_collisions(void)
+{
+    struct config conf = {0};
+    struct context ctx = {
+        .conf = &conf, .section = "vimode-search-bindings", .path = "unittest"};
+
+    test_binding_collisions(
+        &ctx,
+        BIND_ACTION_VIMODE_COUNT - 1, vimode_search_binding_action_map, KEY_BINDING);
 
     config_free(&conf);
 }
@@ -1536,8 +1573,10 @@ main(int argc, const char *const *argv)
     test_section_csd();
     test_section_key_bindings();
     test_section_key_bindings_collisions();
-    test_section_search_bindings();
-    test_section_search_bindings_collisions();
+    test_section_vimode_bindings();
+    test_section_vimode_search_bindings();
+    test_section_vimode_bindings_collisions();
+    test_section_vimode_search_bindings_collisions();
     test_section_url_bindings();
     test_section_url_bindings_collisions();
     test_section_mouse_bindings();

@@ -320,7 +320,7 @@ executable(
   'quirks.c', 'quirks.h',
   'reaper.c', 'reaper.h',
   'render.c', 'render.h',
-  'search.c', 'search.h',
+  'vimode.c', 'vimode.h',
   'server.c', 'server.h', 'client-protocol.h',
   'shm.c', 'shm.h',
   'slave.c', 'slave.h',

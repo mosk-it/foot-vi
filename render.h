@@ -24,7 +24,7 @@ void render_refresh(struct terminal *term);
 void render_refresh_app_id(struct terminal *term);
 void render_refresh_icon(struct terminal *term);
 void render_refresh_csd(struct terminal *term);
-void render_refresh_search(struct terminal *term);
+void render_refresh_vimode_search_box(struct terminal *term);
 void render_refresh_title(struct terminal *term);
 void render_refresh_urls(struct terminal *term);
 bool render_xcursor_set(

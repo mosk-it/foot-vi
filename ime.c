@@ -177,8 +177,10 @@ done(void *data, struct zwp_text_input_v3 *zwp_text_input_v3,
         ime_reset_preedit(seat);
 
         if (term != NULL) {
-            if (term->is_searching)
-                render_refresh_search(term);
+            if (term->is_vimming)
+                // TODO (kociap): refresh
+                // render_refresh_search(term);
+                (void)0;
             else
                 render_refresh(term);
         }
@@ -198,9 +200,11 @@ done(void *data, struct zwp_text_input_v3 *zwp_text_input_v3,
         size_t len = strlen(text);
 
         if (term != NULL) {
-            if (term->is_searching) {
-                search_add_chars(term, text, len);
-                render_refresh_search(term);
+            if (term->is_vimming) {
+                // TODO (kociap): input and refresh
+                // search_add_chars(term, text, len);
+                // render_refresh_search(term);
+                (void)0;
             } else
                 term_to_slave(term, text, len);
         }
@@ -367,8 +371,10 @@ done(void *data, struct zwp_text_input_v3 *zwp_text_input_v3,
     ime_reset_pending_preedit(seat);
 
     if (term != NULL) {
-        if (term->is_searching)
-            render_refresh_search(term);
+        if (term->is_vimming)
+            // TODO (kociap): refresh
+            // render_refresh_search(term);
+            (void)0;
         else
             render_refresh(term);
     }
@@ -474,8 +480,9 @@ ime_update_cursor_rect(struct seat *seat)
         goto update;
 
     /* Set in render_search_box() */
-    if (term->is_searching)
-        goto update;
+    // TODO (kociap): in vimode this most likely is not necessary.
+    // if (term->is_searching)
+    //     goto update;
 
     int x, y, width, height;
     int col = term->grid->cursor.point.col;

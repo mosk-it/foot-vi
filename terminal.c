@@ -46,6 +46,7 @@
 #include "vt.h"
 #include "xmalloc.h"
 #include "xsnprintf.h"
+#include "vimode.h"
 
 #define PTMX_TIMING 0
 
@@ -1888,8 +1889,9 @@ term_destroy(struct terminal *term)
     free_custom_glyphs(
         &term->custom_glyphs.octants, GLYPH_OCTANTS_COUNT);
 
-    free(term->search.buf);
-    free(term->search.last.buf);
+    // TODO (kociap): Free the vimode search buffers.
+    // free(term->search.buf);
+    // free(term->search.last.buf);
 
     if (term->render.workers.threads != NULL) {
         for (size_t i = 0; i < term->render.workers.count; i++) {
@@ -2482,6 +2484,18 @@ term_font_baseline(const struct terminal *term)
 }
 
 void
+term_damage_cell_in_view(struct terminal* const term, int const row, int const col)
+{
+    if(col >= term->grid->num_cols || col < 0) {
+        return;
+    }
+
+    struct row* const r = grid_row_in_view(term->grid, row);
+    r->dirty = true;
+    r->cells[col].attrs.clean = 0;
+}
+
+void
 term_damage_rows(struct terminal *term, int start, int end)
 {
     xassert(start <= end);
@@ -3060,6 +3074,7 @@ selection_on_bottom_region(const struct terminal *term,
 void
 term_scroll_partial(struct terminal *term, struct scroll_region region, int rows)
 {
+    printf("SCROLL PARTIAL [rows=%d, region.start=%d, region.end=%d]\n", rows, region.start, region.end);
     LOG_DBG("scroll: rows=%d, region.start=%d, region.end=%d",
             rows, region.start, region.end);
 
@@ -3117,6 +3132,7 @@ term_scroll_partial(struct terminal *term, struct scroll_region region, int rows
     }
 
     term->grid->cur_row = grid_row(term->grid, term->grid->cursor.point.row);
+    vimode_view_down(term, rows);
 
 #if defined(_DEBUG)
     for (int r = 0; r < term->rows; r++)
@@ -3821,8 +3837,8 @@ term_enable_app_sync_updates(struct terminal *term)
 
     /* Disable pending refresh *iff* the grid is the *only* thing
      * scheduled to be re-rendered */
-    if (!term->render.refresh.csd && !term->render.refresh.search &&
-        !term->render.pending.csd && !term->render.pending.search)
+    if (!term->render.refresh.csd && !term->render.refresh.vimode_search_box &&
+        !term->render.pending.csd && !term->render.pending.vimode_search_box)
     {
         term->render.refresh.grid = false;
         term->render.pending.grid = false;
@@ -3983,6 +3999,7 @@ term_fill(struct terminal *term, int r, int c, uint8_t data, size_t count,
 void
 term_print(struct terminal *term, char32_t wc, int width, bool insert_mode_disable)
 {
+    printf("TERM PRINT\n");
     xassert(width > 0);
 
     struct grid *grid = term->grid;

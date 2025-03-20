@@ -374,9 +374,17 @@ enum term_surface {
 
 enum overlay_style {
     OVERLAY_NONE,
+    // TODO (kociap): rename to OVERLAY_VIMODE
     OVERLAY_SEARCH,
     OVERLAY_FLASH,
     OVERLAY_UNICODE_MODE,
+};
+
+enum vi_mode {
+  VI_MODE_NORMAL,
+  VI_MODE_VISUAL,
+  VI_MODE_VLINE,
+  VI_MODE_VBLOCK,
 };
 
 typedef tll(struct ptmx_buffer) ptmx_buffer_list_t;
@@ -621,23 +629,34 @@ struct terminal {
         } auto_scroll;
     } selection;
 
-    bool is_searching;
+    bool is_vimming;
     struct {
-        char32_t *buf;
-        size_t len;
-        size_t sz;
-        size_t cursor;
+        enum vi_mode mode;  
+        struct coord cursor;
+        bool is_searching;
 
-        int original_view;
-        bool view_followed_offset;
-        struct coord match;
-        size_t match_len;
+        struct {
+            struct coord start;
+        } selection;
+
+        struct vimode_search {
+            char32_t *buf;
+            size_t len;
+            size_t sz;
+            size_t cursor;
+
+            enum search_direction direction;
+            int original_view;
+            struct coord match;
+            size_t match_len;
+        } search;
 
         struct {
             char32_t *buf;
             size_t len;
-        } last;
-    } search;
+            enum search_direction direction;
+        } confirmed_search;
+    } vimode;
 
     struct wayland *wl;
     struct wl_window *window;
@@ -660,7 +679,7 @@ struct terminal {
         struct {
             bool grid;
             bool csd;
-            bool search;
+            bool vimode_search_box;
             bool urls;
         } refresh;
 
@@ -668,7 +687,7 @@ struct terminal {
         struct {
             bool grid;
             bool csd;
-            bool search;
+            bool vimode_search_box;
             bool urls;
         } pending;
 
@@ -878,6 +897,7 @@ int term_pt_or_px_as_pixels(
 
 void term_window_configured(struct terminal *term);
 
+void term_damage_cell_in_view(struct terminal* term, int row, int col);
 void term_damage_rows(struct terminal *term, int start, int end);
 void term_damage_rows_in_view(struct terminal *term, int start, int end);
 

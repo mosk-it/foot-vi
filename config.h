@@ -88,6 +88,7 @@ enum key_binding_type {
 typedef tll(char *) config_modifier_list_t;
 
 struct config_key_binding {
+    // TODO (kociap): from wayland.h?
     int action;  /* One of the various bind_action_* enums from wayland.h */
     //struct config_key_modifiers modifiers;
     config_modifier_list_t modifiers;
@@ -360,9 +361,18 @@ struct config {
          * Special modes
          */
 
-        /* While searching (not - action to *start* a search is in the
-         * 'key' bindings above */
-        struct config_key_binding_list search;
+        /* 
+         * Bindings for vimode. 
+         * Note: action to enter vimode is in the 'key' bindings
+         * above.
+         */
+        struct config_key_binding_list vimode;
+        /*
+         * Bindings for the search mode within vimode.
+         * Actions to enter the search mode are in the 'key' and
+         * 'vimode' bindings.
+         */
+        struct config_key_binding_list vimode_search;
 
         /* While showing URL jump labels */
         struct config_key_binding_list url;

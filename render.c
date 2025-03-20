@@ -36,7 +36,7 @@
 #include "grid.h"
 #include "ime.h"
 #include "quirks.h"
-#include "search.h"
+#include "vimode.h"
 #include "selection.h"
 #include "shm.h"
 #include "sixel.h"
@@ -598,6 +598,10 @@ draw_strikeout(const struct terminal *term, pixman_image_t *pix,
             cols * term->cell_width, thickness});
 }
 
+/*
+ * TODO (kociap): The cell parameter is not used? We could make this
+ * function more generic to be reusable in the search box.
+ */
 static void
 cursor_colors_for_cell(const struct terminal *term, const struct cell *cell,
                        const pixman_color_t *fg, const pixman_color_t *bg,
@@ -701,11 +705,12 @@ render_cell(struct terminal *term, pixman_image_t *pix,
     const int x = term->margins.left + col * width;
     const int y = term->margins.top + row_no * height;
 
+    const bool is_selected = cell->attrs.selected;
+
     uint32_t _fg = 0;
     uint32_t _bg = 0;
 
     uint16_t alpha = 0xffff;
-    const bool is_selected = cell->attrs.selected;
 
     /* Use cell specific color, if set, otherwise the default colors (possible reversed) */
     switch (cell->attrs.fg_src) {
@@ -762,19 +767,29 @@ render_cell(struct terminal *term, pixman_image_t *pix,
             _fg = cell_bg;
         }
 
+        // Cursor is always inverted, thus we want to invert it when
+        // the vi mode is visual or visual block for visibility
+        // (otherwise it is difficult to tell its position within the
+        // row).
+        const bool mode_not_vline = term->vimode.mode == VI_MODE_VISUAL || 
+                                    term->vimode.mode == VI_MODE_VBLOCK;
+        if (has_cursor && mode_not_vline) {
+            uint32_t swap = _fg;
+            _fg = _bg;
+            _bg = swap;
+        }
+
         if (unlikely(_fg == _bg)) {
             /* Invert bg when selected/highlighted text has same fg/bg */
             _bg = ~_bg;
             alpha = 0xffff;
         }
-
     } else {
         if (unlikely(cell->attrs.reverse)) {
             uint32_t swap = _fg;
             _fg = _bg;
             _bg = swap;
         }
-
         else if (!term->window->is_fullscreen && term->colors.alpha != 0xffff) {
             switch (term->conf->colors_dark.alpha_mode) {
             case ALPHA_MODE_DEFAULT: {
@@ -1722,7 +1737,7 @@ render_ime_preedit_for_seat(struct terminal *term, struct seat *seat,
     if (likely(seat->ime.preedit.cells == NULL))
         return;
 
-    if (unlikely(term->is_searching))
+    if (unlikely(term->is_vimming))
         return;
 
     const bool gamma_correct = wayl_do_linear_blending(term->wl, term->conf);
@@ -1965,7 +1980,7 @@ render_overlay(struct terminal *term)
     const bool unicode_mode_active = term->unicode_mode.active;
 
     const enum overlay_style style =
-        term->is_searching ? OVERLAY_SEARCH :
+        term->is_vimming ? OVERLAY_SEARCH :
         term->flash.active ? OVERLAY_FLASH :
         unicode_mode_active ? OVERLAY_UNICODE_MODE :
         OVERLAY_NONE;
@@ -2065,33 +2080,34 @@ render_overlay(struct terminal *term)
         pixman_region32_clear(see_through);
 
         /* Build region consisting of all current search matches */
-        struct search_match_iterator iter = search_matches_new_iter(term);
-        for (struct range match = search_matches_next(&iter);
-             match.start.row >= 0;
-             match = search_matches_next(&iter))
-        {
-            int r = match.start.row;
-            int start_col = match.start.col;
-            const int end_row = match.end.row;
-
-            while (true) {
-                const int end_col =
-                    r == end_row ? match.end.col : term->cols - 1;
-
-                int x = term->margins.left + start_col * term->cell_width;
-                int y = term->margins.top + r * term->cell_height;
-                int width = (end_col + 1 - start_col) * term->cell_width;
-                int height = 1 * term->cell_height;
-
-                pixman_region32_union_rect(
-                    see_through, see_through, x, y, width, height);
-
-                if (++r > end_row)
-                    break;
-
-                start_col = 0;
-            }
-        }
+        // TODO (kociap): commented this because no search atm.
+        // struct search_match_iterator iter = search_matches_new_iter(term);
+        // for (struct range match = search_matches_next(&iter);
+        //      match.start.row >= 0;
+        //      match = search_matches_next(&iter))
+        // {
+        //     int r = match.start.row;
+        //     int start_col = match.start.col;
+        //     const int end_row = match.end.row;
+        //
+        //     while (true) {
+        //         const int end_col =
+        //             r == end_row ? match.end.col : term->cols - 1;
+        //
+        //         int x = term->margins.left + start_col * term->cell_width;
+        //         int y = term->margins.top + r * term->cell_height;
+        //         int width = (end_col + 1 - start_col) * term->cell_width;
+        //         int height = 1 * term->cell_height;
+        //
+        //         pixman_region32_union_rect(
+        //             see_through, see_through, x, y, width, height);
+        //
+        //         if (++r > end_row)
+        //             break;
+        //
+        //         start_col = 0;
+        //     }
+        // }
 
         /* Areas that need to be cleared: cells that were dimmed in
          * the last frame but is now see-through */
@@ -2198,9 +2214,17 @@ render_worker_thread(void *_ctx)
 
         bool frame_done = false;
 
-        /* Translate offset-relative cursor row to view-relative */
+        /*
+         * We always show the vimode cursor when in vimode as that is
+         * not dependent on the terminal state.
+         */
         struct coord cursor = {-1, -1};
-        if (!term->hide_cursor) {
+        if (term->is_vimming) {
+            cursor = term->vimode.cursor;
+            cursor.row += term->grid->offset;
+            cursor.row -= term->grid->view;
+            cursor.row &= term->grid->num_rows - 1;
+        } else if (!term->hide_cursor) {
             cursor = term->grid->cursor.point;
             cursor.row += term->grid->offset;
             cursor.row -= term->grid->view;
@@ -3084,10 +3108,11 @@ render_scrollback_position(struct terminal *term)
 
     case SCROLLBACK_INDICATOR_POSITION_RELATIVE: {
         int lines = term->rows - 2;  /* Avoid using first and last rows */
-        if (term->is_searching) {
-            /* Make sure we don't collide with the scrollback search box */
-            lines--;
-        }
+        // TODO (kociap): whatever this does
+        // if (term->is_searching) {
+        //     /* Make sure we don't collide with the scrollback search box */
+        //     lines--;
+        // }
 
         lines = max(lines, 0);
 
@@ -3303,7 +3328,6 @@ dirty_cursor(struct terminal *term)
         return;
 
     const struct coord *cursor = &term->grid->cursor.point;
-
     struct row *row = grid_row(term->grid, cursor->row);
     struct cell *cell = &row->cells[cursor->col];
     cell->attrs.clean = 0;
@@ -3600,7 +3624,8 @@ grid_render(struct terminal *term)
 
     pixman_region32_fini(&damage);
 
-    render_overlay(term);
+    // TODO (kociap): we want to eventually render the overlays.
+    // render_overlay(term);
     render_ime_preedit(term, buf);
     render_scrollback_position(term);
 
@@ -3706,9 +3731,20 @@ grid_render(struct terminal *term)
     wl_surface_commit(term->window->surface.surf);
 }
 
+static void 
+render_search_box_cursor(
+    struct terminal* const term, pixman_image_t* const pix, pixman_color_t fg, 
+    int x, int y) 
+{
+    pixman_image_fill_rectangles(
+        PIXMAN_OP_SRC, pix, &fg, 1,
+        &(pixman_rectangle16_t){x, y, term->cell_width, term->cell_height});
+}
+
 static void
 render_search_box(struct terminal *term)
 {
+    printf("REDRAWING SEARCH BOX\n");
     xassert(term->window->search.sub != NULL);
 
     /*
@@ -3732,7 +3768,7 @@ render_search_box(struct terminal *term)
         }
     }
 
-    size_t text_len = term->search.len;
+    size_t text_len = term->vimode.search.len;
     if (ime_seat != NULL && ime_seat->ime.preedit.text != NULL)
         text_len += c32len(ime_seat->ime.preedit.text);
 
@@ -3740,19 +3776,19 @@ render_search_box(struct terminal *term)
     text[0] = U'\0';
 
     /* Copy everything up to the cursor */
-    c32ncpy(text, term->search.buf, term->search.cursor);
-    text[term->search.cursor] = U'\0';
+    c32ncpy(text, term->vimode.search.buf, term->vimode.search.cursor);
+    text[term->vimode.search.cursor] = U'\0';
 
     /* Insert pre-edit text at cursor */
     if (ime_seat != NULL && ime_seat->ime.preedit.text != NULL)
         c32cat(text, ime_seat->ime.preedit.text);
 
     /* And finally everything after the cursor */
-    c32ncat(text, &term->search.buf[term->search.cursor],
-            term->search.len - term->search.cursor);
+    c32ncat(text, &term->vimode.search.buf[term->vimode.search.cursor],
+            term->vimode.search.len - term->vimode.search.cursor);
 #else
-    const char32_t *text = term->search.buf;
-    const size_t text_len = term->search.len;
+    const char32_t *text = term->vimode.search.buf;
+    const size_t text_len = term->vimode.search.len;
 #endif
 
     /* Calculate the width of each character */
@@ -3766,21 +3802,15 @@ render_search_box(struct terminal *term)
 
     const float scale = term->scale;
     xassert(scale >= 1.);
-    const size_t margin = (size_t)roundf(3 * scale);
 
-    size_t width = term->width - 2 * margin;
-    size_t height = min(
-        term->height - 2 * margin,
-        margin + 1 * term->cell_height + margin);
+    const size_t width = roundf(scale * ceilf(term->width / scale));
+    const size_t height = 
+        roundf(scale * ceilf(min(term->height, term->cell_height) / scale));
 
-    width = roundf(scale * ceilf((term->width - 2 * margin) / scale));
-    height = roundf(scale * ceilf(height / scale));
+    const size_t visible_width = 
+        min(term->width, wanted_visible_cells * term->cell_width);
 
-    size_t visible_width = min(
-        term->width - 2 * margin,
-        margin + wanted_visible_cells * term->cell_width + margin);
-
-    const size_t visible_cells = (visible_width - 2 * margin) / term->cell_width;
+    const size_t visible_cells = (visible_width) / term->cell_width;
     size_t glyph_offset = term->render.search_glyph_offset;
 
     struct buffer_chain *chain = term->render.chains.search;
@@ -3791,52 +3821,46 @@ render_search_box(struct terminal *term)
     pixman_image_set_clip_region32(buf->pix[0], &clip);
     pixman_region32_fini(&clip);
 
-#define WINDOW_X(x) (margin + x)
-#define WINDOW_Y(y) (term->height - margin - height + y)
+#define WINDOW_X(x) (x)
+#define WINDOW_Y(y) (term->height - height + y)
 
-    const bool is_match = term->search.match_len == text_len;
+    const bool is_match = term->vimode.search.match_len == text_len;
     const bool custom_colors = is_match
         ? term->conf->colors_dark.use_custom.search_box_match
         : term->conf->colors_dark.use_custom.search_box_no_match;
 
     /* Background - yellow on empty/match, red on mismatch (default) */
     const bool gamma_correct = wayl_do_linear_blending(term->wl, term->conf);
-    const pixman_color_t color = color_hex_to_pixman(
+    const pixman_color_t bg = color_hex_to_pixman(
         is_match
         ? (custom_colors
            ? term->conf->colors_dark.search_box.match.bg
-           : term->colors.table[3])
+           : term->colors.bg)
         : (custom_colors
            ? term->conf->colors_dark.search_box.no_match.bg
-           : term->colors.table[1]),
+           : term->colors.bg),
         gamma_correct);
 
     pixman_image_fill_rectangles(
-        PIXMAN_OP_SRC, buf->pix[0], &color,
-        1, &(pixman_rectangle16_t){width - visible_width, 0, visible_width, height});
-
-    pixman_color_t transparent = color_hex_to_pixman_with_alpha(0, 0, gamma_correct);
-    pixman_image_fill_rectangles(
-        PIXMAN_OP_SRC, buf->pix[0], &transparent,
-        1, &(pixman_rectangle16_t){0, 0, width - visible_width, height});
+        PIXMAN_OP_SRC, buf->pix[0], &bg, 1,
+        &(pixman_rectangle16_t){0, 0, width, height});
 
     struct fcft_font *font = term->fonts[0];
-    const int x_left = width - visible_width + margin;
     const int x_ofs = term->font_x_ofs;
-    int x = x_left;
-    int y = margin;
+    int x = 0;
+    int y = 0;
 
     pixman_color_t fg = color_hex_to_pixman(
         custom_colors
         ? (is_match
            ? term->conf->colors_dark.search_box.match.fg
            : term->conf->colors_dark.search_box.no_match.fg)
-        : term->colors.table[0],
+        : term->colors.table[244],
         gamma_correct);
 
     /* Move offset we start rendering at, to ensure the cursor is visible */
-    for (size_t i = 0, cell_idx = 0; i <= term->search.cursor; cell_idx += widths[i], i++) {
-        if (i != term->search.cursor)
+    for (size_t i = 0, cell_idx = 0; i <= term->vimode.search.cursor; cell_idx += widths[i], i++) {
+        if (i != term->vimode.search.cursor)
             continue;
 
 #if (FOOT_IME_ENABLED) && FOOT_IME_ENABLED
@@ -3902,7 +3926,8 @@ render_search_box(struct terminal *term)
     {
     /* Convert subsurface coordinates to window coordinates*/
         /* Render cursor */
-        if (i == term->search.cursor) {
+        bool const cursor_cell = i == term->vimode.search.cursor;
+        if (cursor_cell) {
 #if defined(FOOT_IME_ENABLED) && FOOT_IME_ENABLED
             bool have_preedit =
                 ime_seat != NULL && ime_seat->ime.preedit.cells != NULL;
@@ -3930,8 +3955,7 @@ render_search_box(struct terminal *term)
 
                     /* Bar-styled cursor, if in the visible area */
                     if (start >= 0 && start <= visible_cells) {
-                        draw_beam_cursor(
-                            term, buf->pix[0], font, &fg,
+                        render_search_box_cursor(term, buf->pix[0], fg, 
                             x + start * term->cell_width, y);
                     }
 
@@ -3963,7 +3987,7 @@ render_search_box(struct terminal *term)
                 /* Cursor *should* be in the visible area */
                 xassert(cell_idx >= glyph_offset);
                 xassert(cell_idx <= glyph_offset + visible_cells);
-                draw_beam_cursor(term, buf->pix[0], font, &fg, x, y);
+                render_search_box_cursor(term, buf->pix[0], fg, x, y);
                 term_ime_set_cursor_rect(
                     term, WINDOW_X(x), WINDOW_Y(y), 1, term->cell_height);
             }
@@ -3999,7 +4023,8 @@ render_search_box(struct terminal *term)
                    ? width * term->cell_width
                    : (width - 1) * term->cell_width)
                 : 0;  /* Not a zero-width character - no additional offset */
-            pixman_image_t *src = pixman_image_create_solid_fill(&fg);
+            pixman_color_t color = cursor_cell ? bg : fg;
+            pixman_image_t *src = pixman_image_create_solid_fill(&color);
             pixman_image_composite32(
                 PIXMAN_OP_OVER, src, glyph->pix, buf->pix[0], 0, 0, 0, 0,
                 x + x_ofs + combining_ofs + glyph->x,
@@ -4017,8 +4042,8 @@ render_search_box(struct terminal *term)
             /* Already rendered */;
         else
 #endif
-        if (term->search.cursor >= term->search.len) {
-            draw_beam_cursor(term, buf->pix[0], font, &fg, x, y);
+        if (term->vimode.search.cursor >= term->vimode.search.len) {
+            render_search_box_cursor(term, buf->pix[0], fg, x, y);
             term_ime_set_cursor_rect(
                 term, WINDOW_X(x), WINDOW_Y(y), 1, term->cell_height);
         }
@@ -4028,8 +4053,8 @@ render_search_box(struct terminal *term)
     /* TODO: this is only necessary on a window resize */
     wl_subsurface_set_position(
         term->window->search.sub,
-        roundf(margin / scale),
-        roundf(max(0, (int32_t)term->height - height - margin) / scale));
+        0,
+        roundf(max(0, (int32_t)term->height - height) / scale));
 
     wayl_surface_scale(term->window, &term->window->search.surface, buf, scale);
     wl_surface_attach(term->window->search.surface.surf, buf->wl_buf, 0, 0);
@@ -4037,7 +4062,7 @@ render_search_box(struct terminal *term)
 
     struct wl_region *region = wl_compositor_create_region(term->wl->compositor);
     if (region != NULL) {
-        wl_region_add(region, width - visible_width, 0, visible_width, height);
+        wl_region_add(region, 0, 0, width, height);
         wl_surface_set_opaque_region(term->window->search.surface.surf, region);
         wl_region_destroy(region);
     }
@@ -4307,14 +4332,14 @@ frame_callback(void *data, struct wl_callback *wl_callback, uint32_t callback_da
     wl_callback_destroy(wl_callback);
     term->window->frame_callback = NULL;
 
-    bool grid = term->render.pending.grid;
-    bool csd = term->render.pending.csd;
-    bool search = term->is_searching && term->render.pending.search;
-    bool urls = urls_mode_is_active(term) > 0 && term->render.pending.urls;
+    bool const grid = term->render.pending.grid;
+    bool const csd = term->render.pending.csd;
+    bool const search_box = term->render.pending.vimode_search_box;
+    bool const urls = urls_mode_is_active(term) > 0 && term->render.pending.urls;
 
     term->render.pending.grid = false;
     term->render.pending.csd = false;
-    term->render.pending.search = false;
+    term->render.pending.vimode_search_box = false;
     term->render.pending.urls = false;
 
     struct grid *original_grid = term->grid;
@@ -4329,13 +4354,13 @@ frame_callback(void *data, struct wl_callback *wl_callback, uint32_t callback_da
         quirk_weston_csd_off(term);
     }
 
-    if (search)
+    if (search_box)
         render_search_box(term);
 
     if (urls)
         render_urls(term);
 
-    if ((grid && !term->delayed_render_timer.is_armed) || (csd | search | urls))
+    if ((grid && !term->delayed_render_timer.is_armed) || (csd | search_box | urls))
         grid_render(term);
 
     tll_foreach(term->wl->seats, it) {
@@ -4981,7 +5006,7 @@ damage_view:
     term->render.last_buf = NULL;
     term_damage_view(term);
     render_refresh_csd(term);
-    render_refresh_search(term);
+    render_refresh_vimode_search_box(term);
     render_refresh(term);
 
     return true;
@@ -5126,20 +5151,20 @@ fdm_hook_refresh_pending_terminals(struct fdm *fdm, void *data)
         if (unlikely(term->shutdown.in_progress || !term->window->is_configured))
             continue;
 
-        bool grid = term->render.refresh.grid;
-        bool csd = term->render.refresh.csd;
-        bool search = term->is_searching && term->render.refresh.search;
-        bool urls = urls_mode_is_active(term) && term->render.refresh.urls;
+        bool const grid = term->render.refresh.grid;
+        bool const csd = term->render.refresh.csd;
+        bool const search_box = term->render.refresh.vimode_search_box;
+        bool const urls = urls_mode_is_active(term) && term->render.refresh.urls;
 
-        if (!(grid | csd | search | urls))
+        if (!(grid | csd | search_box | urls))
             continue;
 
-        if (term->render.app_sync_updates.enabled && !(csd | search | urls))
+        if (term->render.app_sync_updates.enabled && !(csd | search_box | urls))
             continue;
 
         term->render.refresh.grid = false;
         term->render.refresh.csd = false;
-        term->render.refresh.search = false;
+        term->render.refresh.vimode_search_box = false;
         term->render.refresh.urls = false;
 
         if (term->window->frame_callback == NULL) {
@@ -5154,11 +5179,11 @@ fdm_hook_refresh_pending_terminals(struct fdm *fdm, void *data)
                 render_csd(term);
                 quirk_weston_csd_off(term);
             }
-            if (search)
+            if (search_box)
                 render_search_box(term);
             if (urls)
                 render_urls(term);
-            if (grid | csd | search | urls)
+            if (grid | csd | search_box | urls)
                 grid_render(term);
 
             tll_foreach(term->wl->seats, it) {
@@ -5171,7 +5196,7 @@ fdm_hook_refresh_pending_terminals(struct fdm *fdm, void *data)
             /* Tells the frame callback to render again */
             term->render.pending.grid |= grid;
             term->render.pending.csd |= csd;
-            term->render.pending.search |= search;
+            term->render.pending.vimode_search_box |= search_box;
             term->render.pending.urls |= urls;
         }
     }
@@ -5289,11 +5314,13 @@ render_refresh_csd(struct terminal *term)
         term->render.refresh.csd = true;
 }
 
+// TODO (kociap): Rename to something more indicative, e.g.
+// render_refresh_vimode_search_box_search_box
 void
-render_refresh_search(struct terminal *term)
+render_refresh_vimode_search_box(struct terminal *term)
 {
-    if (term->is_searching)
-        term->render.refresh.search = true;
+    if (term->is_vimming && term->vimode.is_searching)
+        term->render.refresh.vimode_search_box = true;
 }
 
 void
