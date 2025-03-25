@@ -351,7 +351,7 @@ enum selection_kind {
 };
 enum selection_direction {SELECTION_UNDIR, SELECTION_LEFT, SELECTION_RIGHT};
 enum selection_scroll_direction {SELECTION_SCROLL_NOT, SELECTION_SCROLL_UP, SELECTION_SCROLL_DOWN};
-enum search_direction { SEARCH_BACKWARD_SAME_POSITION, SEARCH_BACKWARD, SEARCH_FORWARD };
+enum search_direction { SEARCH_BACKWARD, SEARCH_FORWARD };
 
 struct ptmx_buffer {
     void *data;
@@ -632,6 +632,7 @@ struct terminal {
     bool is_vimming;
     struct {
         enum vi_mode mode;  
+        // The position of the cursor (offset relative).
         struct coord cursor;
         bool is_searching;
 
@@ -646,9 +647,10 @@ struct terminal {
             size_t cursor;
 
             enum search_direction direction;
-            int original_view;
             struct coord match;
             size_t match_len;
+            int original_view;
+            struct coord original_cursor;
         } search;
 
         struct {

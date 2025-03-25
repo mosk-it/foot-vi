@@ -5314,8 +5314,6 @@ render_refresh_csd(struct terminal *term)
         term->render.refresh.csd = true;
 }
 
-// TODO (kociap): Rename to something more indicative, e.g.
-// render_refresh_vimode_search_box_search_box
 void
 render_refresh_vimode_search_box(struct terminal *term)
 {

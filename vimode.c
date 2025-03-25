@@ -16,6 +16,8 @@
 #include "vimode.h"
 #include "xmalloc.h"
 
+// TODO (kociap): consider adding scrolloff.
+
 static bool is_mode_visual(enum vi_mode const mode) {
   return mode == VI_MODE_VISUAL || mode == VI_MODE_VLINE ||
          mode == VI_MODE_VBLOCK;
@@ -36,6 +38,10 @@ selection_kind_from_vi_mode(enum vi_mode const mode) {
   }
 }
 
+static enum search_direction invert_direction(enum search_direction direction) {
+  return direction == SEARCH_FORWARD ? SEARCH_BACKWARD : SEARCH_FORWARD;
+}
+
 static struct coord offset_to_view_relative(struct terminal *const term,
                                             struct coord coord) {
   coord.row += term->grid->offset;
@@ -50,6 +56,34 @@ static struct coord view_to_offset_relative(struct terminal *const term,
   return coord;
 }
 
+static int cursor_to_scrollback_relative(struct terminal *const term, int row) {
+  row = grid_row_abs_to_sb(term->grid, term->rows,
+                           grid_row_absolute(term->grid, row));
+  return row;
+}
+
+static int cursor_from_scrollback_relative(struct terminal *const term,
+                                           int row) {
+  row = grid_row_sb_to_abs(term->grid, term->rows, row);
+  row -= term->grid->offset;
+  return row;
+}
+
+static int view_to_scrollback_relative(struct terminal *const term) {
+  return grid_row_abs_to_sb(term->grid, term->rows, term->grid->view);
+}
+
+static struct coord delta_cursor_to_abs_coord(struct terminal *const term,
+                                              struct coord const coord) {
+  int const location = grid_row_abs_to_sb(term->grid, term->rows, coord.row);
+  int const cursor =
+      cursor_to_scrollback_relative(term, term->vimode.cursor.row);
+  return (struct coord){
+      .row = location - cursor,
+      .col = coord.col - term->vimode.cursor.col,
+  };
+}
+
 static void damage_cursor_cell(struct terminal *const term) {
   struct coord const cursor =
       offset_to_view_relative(term, term->vimode.cursor);
@@ -61,19 +95,39 @@ static void clip_cursor_to_view(struct terminal *const term) {
   printf("CLIP CURSOR BEFORE (%d, %d) [view=%d; offset=%d]\n",
          term->vimode.cursor.row, term->vimode.cursor.col, term->grid->view,
          term->grid->offset);
-  struct coord cursor = offset_to_view_relative(term, term->vimode.cursor);
-  printf("CLIP CURSOR VIEW RELATIVE BEFORE (%d, %d)\n", cursor.row, cursor.col);
-  if (cursor.row < 0) {
-    cursor.row = 0;
-  } else if (cursor.row >= term->rows) {
-    cursor.row = term->rows - 1;
+  int cursor_row = cursor_to_scrollback_relative(term, term->vimode.cursor.row);
+  int const view_row = view_to_scrollback_relative(term);
+  printf("CLIP CURSOR VIEW RELATIVE BEFORE (%d, %d) [cursor_row=%d; "
+         "view_row=%d]\n",
+         cursor_row, term->vimode.cursor.col, cursor_row, view_row);
+  if (cursor_row < view_row) {
+    cursor_row = view_row;
+  } else if (cursor_row - view_row >= term->rows) {
+    cursor_row = view_row + term->rows - 1;
   }
-  printf("CLIP CURSOR VIEW RELATIVE AFTER (%d, %d)\n", cursor.row, cursor.col);
-  term->vimode.cursor = view_to_offset_relative(term, cursor);
+  printf("CLIP CURSOR VIEW RELATIVE AFTER (%d, %d)\n", cursor_row,
+         term->vimode.cursor.col);
+  term->vimode.cursor.row = cursor_from_scrollback_relative(term, cursor_row);
   printf("CLIP CURSOR AFTER (%d, %d)\n", term->vimode.cursor.row,
          term->vimode.cursor.col);
   damage_cursor_cell(term);
   render_refresh(term);
+}
+
+static void center_view_on_cursor(struct terminal *const term) {
+  int const cursor =
+      cursor_to_scrollback_relative(term, term->vimode.cursor.row);
+  int const current_view = view_to_scrollback_relative(term);
+  int const half_viewport = term->rows / 2;
+  int const delta = (cursor - half_viewport) - current_view;
+  printf("CENTER VIEW [cursor=(%d, %d); current_view=%d; half_viewport=%d; "
+         "delta=%d]\n",
+         cursor, term->vimode.cursor.col, current_view, half_viewport, delta);
+  if (delta < 0) {
+    cmd_scrollback_up(term, -delta);
+  } else if (delta > 0) {
+    cmd_scrollback_down(term, delta);
+  }
 }
 
 static void update_selection(struct seat *const seat,
@@ -141,7 +195,8 @@ static bool search_ensure_size(struct terminal *term, size_t wanted_size) {
   return true;
 }
 
-static void start_search(struct terminal *term) {
+static void start_search(struct terminal *term,
+                         enum search_direction const direction) {
   if (term->vimode.is_searching) {
     return;
   }
@@ -150,12 +205,15 @@ static void start_search(struct terminal *term) {
 
   const struct grid *grid = term->grid;
   term->vimode.search.original_view = grid->view;
+  term->vimode.search.original_cursor = term->vimode.cursor;
   term->vimode.search.len = 0;
   term->vimode.search.sz = 64;
   term->vimode.search.buf =
       xmalloc(term->vimode.search.sz * sizeof(term->vimode.search.buf[0]));
   term->vimode.search.buf[0] = U'\0';
-  term->vimode.search.direction = SEARCH_FORWARD;
+  term->vimode.search.direction = direction;
+  term->vimode.search.match = (struct coord){-1, -1};
+  term->vimode.search.match_len = 0;
   term->vimode.is_searching = true;
 
   /* On-demand instantiate wayland surface */
@@ -166,14 +224,30 @@ static void start_search(struct terminal *term) {
   render_refresh_vimode_search_box(term);
 }
 
-static void cancel_search(struct terminal *const term) {
+static void restore_pre_search_state(struct terminal *const term) {
+  // TODO (kociap): update selection.
+  damage_cursor_cell(term);
+  term->vimode.cursor = term->vimode.search.original_cursor;
+  damage_cursor_cell(term);
+  term->grid->view =
+      ensure_view_is_allocated(term, term->vimode.search.original_view);
+  term_damage_view(term);
+  render_refresh(term);
+}
+
+static void cancel_search(struct terminal *const term,
+                          bool const restore_original) {
   if (!term->vimode.is_searching) {
     return;
   }
 
   wayl_win_subsurface_destroy(&term->window->search);
+
   term->vimode.is_searching = false;
   struct vimode_search *const search = &term->vimode.search;
+  if (restore_original) {
+    restore_pre_search_state(term);
+  }
   if (search->buf != NULL) {
     free(search->buf);
     search->buf = NULL;
@@ -184,15 +258,22 @@ static void cancel_search(struct terminal *const term) {
   search->match = (struct coord){-1, -1};
   search->match_len = 0;
   term->render.search_glyph_offset = 0;
+}
 
-  term->grid->view = ensure_view_is_allocated(term, search->original_view);
-  term_damage_view(term);
-  render_refresh(term);
+static void confirm_search(struct terminal *const term) {
+  if (term->vimode.confirmed_search.buf != NULL) {
+    free(term->vimode.confirmed_search.buf);
+  }
+  term->vimode.confirmed_search.buf = term->vimode.search.buf;
+  term->vimode.confirmed_search.len = term->vimode.search.len;
+  term->vimode.confirmed_search.direction = term->vimode.search.direction;
+  term->vimode.search.buf = NULL;
+  cancel_search(term, false);
 }
 
 void vimode_search_begin(struct terminal *term) {
   vimode_begin(term);
-  start_search(term);
+  start_search(term, SEARCH_FORWARD);
   term_xcursor_update(term);
 }
 
@@ -219,6 +300,7 @@ void vimode_begin(struct terminal *term) {
   term_xcursor_update(term);
 }
 
+// TODO (kociap): vimode is being cancelled by cursor input.
 void vimode_cancel(struct terminal *term) {
   if (!term->is_vimming) {
     return;
@@ -226,7 +308,7 @@ void vimode_cancel(struct terminal *term) {
 
   printf("VIMODE CANCEL\n");
 
-  cancel_search(term);
+  cancel_search(term, false);
 
   term->is_vimming = false;
 
@@ -245,8 +327,9 @@ void vimode_cancel(struct terminal *term) {
 }
 
 static ssize_t matches_cell(const struct terminal *term,
-                            const struct cell *cell, size_t search_ofs) {
-  assert(search_ofs < term->vimode.search.len);
+                            const struct cell *cell, char32_t const *const buf,
+                            size_t const len, size_t search_ofs) {
+  assert(search_ofs < len);
 
   char32_t base = cell->wc;
   const struct composed *composed = NULL;
@@ -256,19 +339,18 @@ static ssize_t matches_cell(const struct terminal *term,
     base = composed->chars[0];
   }
 
-  if (composed == NULL && base == 0 &&
-      term->vimode.search.buf[search_ofs] == U' ')
+  if (composed == NULL && base == 0 && buf[search_ofs] == U' ')
     return 1;
 
-  if (c32ncasecmp(&base, &term->vimode.search.buf[search_ofs], 1) != 0)
+  if (c32ncasecmp(&base, &buf[search_ofs], 1) != 0)
     return -1;
 
   if (composed != NULL) {
-    if (search_ofs + composed->count > term->vimode.search.len)
+    if (search_ofs + composed->count > len)
       return -1;
 
     for (size_t j = 1; j < composed->count; j++) {
-      if (composed->chars[j] != term->vimode.search.buf[search_ofs + j])
+      if (composed->chars[j] != buf[search_ofs + j])
         return -1;
     }
   }
@@ -276,7 +358,8 @@ static ssize_t matches_cell(const struct terminal *term,
   return composed != NULL ? composed->count : 1;
 }
 
-static bool find_next(struct terminal *term, enum search_direction direction,
+static bool find_next(struct terminal *term, char32_t const *const buf,
+                      size_t const len, enum search_direction direction,
                       struct coord abs_start, struct coord abs_end,
                       struct range *match) {
 #define ROW_DEC(_r) ((_r) = ((_r) - 1 + grid->num_rows) & (grid->num_rows - 1))
@@ -310,7 +393,7 @@ static bool find_next(struct terminal *term, enum search_direction direction,
 
     for (; backward ? match_start_col >= 0 : match_start_col < term->cols;
          backward ? match_start_col-- : match_start_col++) {
-      if (matches_cell(term, &row->cells[match_start_col], 0) < 0) {
+      if (matches_cell(term, &row->cells[match_start_col], buf, len, 0) < 0) {
         if (match_start_row == abs_end.row && match_start_col == abs_end.col) {
           break;
         }
@@ -330,7 +413,7 @@ static bool find_next(struct terminal *term, enum search_direction direction,
       const struct row *match_row = row;
       size_t match_len = 0;
 
-      for (size_t i = 0; i < term->vimode.search.len;) {
+      for (size_t i = 0; i < len;) {
         if (match_end_col >= term->cols) {
           ROW_INC(match_end_row);
           match_end_col = 0;
@@ -346,7 +429,7 @@ static bool find_next(struct terminal *term, enum search_direction direction,
         }
 
         ssize_t additional_chars =
-            matches_cell(term, &match_row->cells[match_end_col], i);
+            matches_cell(term, &match_row->cells[match_end_col], buf, len, i);
         if (additional_chars < 0)
           break;
 
@@ -360,7 +443,7 @@ static bool find_next(struct terminal *term, enum search_direction direction,
         }
       }
 
-      if (match_len != term->vimode.search.len) {
+      if (match_len != len) {
         /* Didn't match (completely) */
 
         if (match_start_row == abs_end.row && match_start_col == abs_end.col) {
@@ -385,79 +468,52 @@ static bool find_next(struct terminal *term, enum search_direction direction,
   }
 
   return false;
+#undef ROW_DEC
 }
 
-static void search_find_next(struct terminal *term,
-                             enum search_direction direction) {
+static bool find_next_from_cursor(struct terminal *const term,
+                                  char32_t *const buf, size_t const len,
+                                  enum search_direction const direction,
+                                  struct range *const match) {
+  if (len == 0 || buf == NULL) {
+    return false;
+  }
+
   struct grid *grid = term->grid;
 
-  if (term->vimode.search.len == 0) {
-    term->vimode.search.match = (struct coord){-1, -1};
-    return;
-  }
+  struct coord start = {
+      .row = grid_row_absolute(grid, term->vimode.cursor.row),
+      .col = term->vimode.cursor.col,
+  };
 
-  struct coord start = term->vimode.search.match;
-  size_t len = term->vimode.search.match_len;
-
-  xassert((len == 0 && start.row == -1 && start.col == -1) ||
-          (len > 0 && start.row >= 0 && start.col >= 0));
-
-  if (len == 0) {
-    /* No previous match, start from the top, or bottom, of the scrollback */
-    switch (direction) {
-    case SEARCH_FORWARD:
-      start.row = grid_row_absolute_in_view(grid, 0);
+  switch (direction) {
+  case SEARCH_FORWARD:
+    start.col += 1;
+    if (start.col >= term->cols) {
       start.col = 0;
-      break;
+      start.row++;
+      start.row &= grid->num_rows - 1;
+    }
+    break;
 
-    case SEARCH_BACKWARD:
-    case SEARCH_BACKWARD_SAME_POSITION:
-      start.row = grid_row_absolute_in_view(grid, term->rows - 1);
+  case SEARCH_BACKWARD:
+    start.col -= 1;
+    if (start.col < 0) {
       start.col = term->cols - 1;
-      break;
+      start.row += grid->num_rows - 1;
+      start.row &= grid->num_rows - 1;
     }
-  } else {
-    /* Continue from last match */
-    xassert(start.row >= 0);
-    xassert(start.col >= 0);
-
-    switch (direction) {
-    case SEARCH_BACKWARD_SAME_POSITION:
-      break;
-
-    case SEARCH_BACKWARD:
-      if (--start.col < 0) {
-        start.col = term->cols - 1;
-        start.row += grid->num_rows - 1;
-        start.row &= grid->num_rows - 1;
-      }
-      break;
-
-    case SEARCH_FORWARD:
-      if (++start.col >= term->cols) {
-        start.col = 0;
-        start.row++;
-        start.row &= grid->num_rows - 1;
-      }
-      break;
-    }
-
-    xassert(start.row >= 0);
-    xassert(start.row < grid->num_rows);
-    xassert(start.col >= 0);
-    xassert(start.col < term->cols);
+    break;
   }
 
-  LOG_DBG("update: %s: starting at row=%d col=%d "
-          "(offset = %d, view = %d)",
-          direction != SEARCH_FORWARD ? "backward" : "forward", start.row,
-          start.col, grid->offset, grid->view);
+  xassert(start.row >= 0 && start.col >= 0);
 
   struct coord end = start;
   switch (direction) {
   case SEARCH_FORWARD:
     /* Search forward, until we reach the cell *before* current start */
-    if (--end.col < 0) {
+    end.col -= 1;
+    if (end.col < 0) {
       end.col = term->cols - 1;
       end.row += grid->num_rows - 1;
       end.row &= grid->num_rows - 1;
@@ -465,28 +521,17 @@ static void search_find_next(struct terminal *term,
     break;
 
   case SEARCH_BACKWARD:
-  case SEARCH_BACKWARD_SAME_POSITION:
     /* Search backwards, until we reach the cell *after* current start */
-    if (++end.col >= term->cols) {
+    end.col += 1;
+    if (end.col >= term->cols) {
       end.col = 0;
-      end.row++;
+      end.row += 1;
       end.row &= grid->num_rows - 1;
     }
     break;
   }
 
-  struct range match;
-  bool found = find_next(term, direction, start, end, &match);
-  if (found) {
-    LOG_DBG("primary match found at %dx%d", match.start.row, match.start.col);
-    term->vimode.search.match = match.start;
-    term->vimode.search.match_len = term->vimode.search.len;
-  } else {
-    LOG_DBG("no match");
-    term->vimode.search.match = (struct coord){-1, -1};
-    term->vimode.search.match_len = 0;
-  }
-#undef ROW_DEC
+  return find_next(term, buf, len, direction, start, end, match);
 }
 
 struct search_match_iterator search_matches_new_iter(struct terminal *term) {
@@ -520,7 +565,10 @@ struct range search_matches_next(struct search_match_iterator *iter) {
   /* BUG: matches *starting* outside the view, but ending *inside*, aren't
    * matched */
   struct range match;
-  bool found = find_next(term, SEARCH_FORWARD, abs_start, abs_end, &match);
+  // TODO (kociap): consider whether using active search buffer is
+  // reasonable.
+  bool found = find_next(term, term->vimode.search.buf, term->vimode.search.len,
+                         SEARCH_FORWARD, abs_start, abs_end, &match);
   if (!found)
     goto no_match;
 
@@ -671,19 +719,13 @@ void vimode_view_down(struct terminal *const term, int const delta) {
   clip_cursor_to_view(term);
 }
 
-// move_cursor_vertical
-//
-// Moves the cursor up or down within the scrollback. If the cursor goes outside
-// the view bounds, the view is scrolled.
-//
-// Parameters:
-// count - the number of rows to move by. Negative values move up, positive
-//         down.
-//
-static void move_cursor_vertical(struct terminal *const term, int const count) {
+static void move_cursor_delta(struct terminal *const term,
+                              struct coord const delta) {
   damage_cursor_cell(term);
   struct coord cursor = offset_to_view_relative(term, term->vimode.cursor);
-  cursor.row += count;
+  cursor.row += delta.row;
+  cursor.col += delta.col;
+
   if (cursor.row < 0) {
     int const overflow = -cursor.row;
     cmd_scrollback_up(term, overflow);
@@ -694,12 +736,30 @@ static void move_cursor_vertical(struct terminal *const term, int const count) {
     cursor.row = term->rows - 1;
   }
 
+  if (cursor.col < 0) {
+    cursor.col = 0;
+  } else if (cursor.col >= term->cols) {
+    cursor.col = term->cols - 1;
+  }
+
   term->vimode.cursor = view_to_offset_relative(term, cursor);
-  printf("DIRTYING CELL (%d, %d) [offset=%d; view=%d]\n",
-         term->vimode.cursor.row, term->vimode.cursor.col, term->grid->offset,
-         term->grid->view);
+  printf("CURSOR MOVED (%d, %d) [delta=(%d, %d)]\n", term->vimode.cursor.row,
+         term->vimode.cursor.col, delta.row, delta.col);
   damage_cursor_cell(term);
   render_refresh(term);
+}
+
+// move_cursor_vertical
+//
+// Moves the cursor up or down within the scrollback. If the cursor goes outside
+// the view bounds, the view is scrolled.
+//
+// Parameters:
+// count - the number of rows to move by. Negative values move up, positive
+//         down.
+//
+static void move_cursor_vertical(struct terminal *const term, int const count) {
+  move_cursor_delta(term, (struct coord){.row = count, .col = 0});
 }
 
 // move_cursor_horizontal
@@ -713,18 +773,7 @@ static void move_cursor_vertical(struct terminal *const term, int const count) {
 //
 static void move_cursor_horizontal(struct terminal *const term,
                                    int const count) {
-  damage_cursor_cell(term);
-  struct coord cursor = term->vimode.cursor;
-  cursor.col += count;
-  if (cursor.col < 0) {
-    cursor.col = 0;
-  } else if (cursor.col >= term->cols) {
-    cursor.col = term->cols - 1;
-  }
-
-  term->vimode.cursor = cursor;
-  damage_cursor_cell(term);
-  render_refresh(term);
+  move_cursor_delta(term, (struct coord){.row = 0, .col = count});
 }
 
 static void execute_vimode_binding(struct seat *seat, struct terminal *term,
@@ -798,15 +847,17 @@ static void execute_vimode_binding(struct seat *seat, struct terminal *term,
 
   case BIND_ACTION_VIMODE_FIRST_LINE:
     cmd_scrollback_up(term, term->grid->num_rows);
-    term->vimode.cursor.row = -term->grid->num_rows;
-    clip_cursor_to_view(term);
+    damage_cursor_cell(term);
+    term->vimode.cursor.row = cursor_from_scrollback_relative(term, 0);
+    damage_cursor_cell(term);
     update_selection(seat, term);
     break;
 
   case BIND_ACTION_VIMODE_LAST_LINE:
     cmd_scrollback_down(term, term->grid->num_rows);
-    term->vimode.cursor.row = term->grid->num_rows;
-    clip_cursor_to_view(term);
+    damage_cursor_cell(term);
+    term->vimode.cursor.row = term->rows - 1;
+    damage_cursor_cell(term);
     update_selection(seat, term);
     break;
 
@@ -824,14 +875,39 @@ static void execute_vimode_binding(struct seat *seat, struct terminal *term,
     break;
   }
 
-  case BIND_ACTION_VIMODE_START_SEARCH:
-    start_search(term);
+  case BIND_ACTION_VIMODE_START_SEARCH_FORWARD:
+    start_search(term, SEARCH_FORWARD);
     break;
 
-  // TODO (kociap): Implement.
-  case BIND_ACTION_VIMODE_FIND_NEXT:
-  case BIND_ACTION_VIMODE_FIND_PREV:
+  case BIND_ACTION_VIMODE_START_SEARCH_BACKWARD:
+    start_search(term, SEARCH_BACKWARD);
     break;
+
+  case BIND_ACTION_VIMODE_FIND_PREV:
+  case BIND_ACTION_VIMODE_FIND_NEXT: {
+    enum search_direction const direction =
+        (action == BIND_ACTION_VIMODE_FIND_NEXT)
+            ? term->vimode.confirmed_search.direction
+            : invert_direction(term->vimode.confirmed_search.direction);
+    struct range match;
+    bool const matched = find_next_from_cursor(
+        term, term->vimode.confirmed_search.buf,
+        term->vimode.confirmed_search.len, direction, &match);
+    // TODO (kociap): feedback for the user when no match?
+    if (matched) {
+      struct coord const delta = delta_cursor_to_abs_coord(term, match.start);
+      printf("SEARCH %s [direction=%s; location=%d; cursor=%d; match=(%d, "
+             "%d)]\n",
+             (action == BIND_ACTION_VIMODE_FIND_NEXT) ? "NEXT" : "PREV",
+             (direction == SEARCH_FORWARD ? "forward" : "backward"),
+             grid_row_abs_to_sb(term->grid, term->rows, match.start.row),
+             cursor_to_scrollback_relative(term, term->vimode.cursor.row),
+             match.start.row, match.start.col);
+      // TODO (kociap): update selection.
+      move_cursor_delta(term, delta);
+    }
+    break;
+  }
 
   case BIND_ACTION_VIMODE_ENTER_VISUAL:
   case BIND_ACTION_VIMODE_ENTER_VLINE:
@@ -913,11 +989,13 @@ static void execute_vimode_binding(struct seat *seat, struct terminal *term,
 }
 
 static void execute_vimode_search_binding(struct seat *seat,
-                                          struct terminal *term,
+                                          struct terminal *const term,
                                           const struct key_binding *binding,
-                                          uint32_t serial) {
+                                          uint32_t serial,
+                                          bool *search_string_changed) {
   const enum bind_action_vimode action = binding->action;
   struct vimode_search *const search = &term->vimode.search;
+  *search_string_changed = false;
 
   if (term->grid != &term->normal) {
     return;
@@ -927,12 +1005,22 @@ static void execute_vimode_search_binding(struct seat *seat,
   case BIND_ACTION_VIMODE_SEARCH_NONE:
     break;
 
-  // TODO (kociap): implement
   case BIND_ACTION_VIMODE_SEARCH_CONFIRM:
+    if (search->match_len > 0) {
+      struct coord const delta = delta_cursor_to_abs_coord(term, search->match);
+      printf("CONFIRM SEARCH [location=%d; cursor=%d; match=(%d, %d)]\n",
+             grid_row_abs_to_sb(term->grid, term->rows, search->match.row),
+             cursor_to_scrollback_relative(term, term->vimode.cursor.row),
+             search->match.row, search->match.col);
+      // TODO (kociap): update selection.
+      move_cursor_delta(term, delta);
+      center_view_on_cursor(term);
+    }
+    confirm_search(term);
     break;
 
   case BIND_ACTION_VIMODE_SEARCH_CANCEL:
-    cancel_search(term);
+    cancel_search(term, true);
     break;
 
   case BIND_ACTION_VIMODE_SEARCH_DELETE_PREV_CHAR:
@@ -943,6 +1031,7 @@ static void execute_vimode_search_binding(struct seat *seat,
       search->len -= 1;
       search->buf[search->len] = U'\0';
       render_refresh_vimode_search_box(term);
+      *search_string_changed = true;
     }
     break;
 
@@ -1027,8 +1116,6 @@ void vimode_input(struct seat *seat, struct terminal *term,
           ? xkb_compose_state_get_status(seat->kbd.xkb_compose_state)
           : XKB_COMPOSE_NOTHING;
 
-  // bool update_search_result = false;
-
   if (!term->vimode.is_searching) {
     struct key_binding const *const binding = match_binding(
         &bindings->vimode, key, sym, mods, consumed, raw_syms, raw_count);
@@ -1039,8 +1126,10 @@ void vimode_input(struct seat *seat, struct terminal *term,
     struct key_binding const *const binding =
         match_binding(&bindings->vimode_search, key, sym, mods, consumed,
                       raw_syms, raw_count);
+    bool search_string_updated = false;
     if (binding != NULL) {
-      execute_vimode_search_binding(seat, term, binding, serial);
+      execute_vimode_search_binding(seat, term, binding, serial,
+                                    &search_string_updated);
     } else {
       // If not a binding, then handle it as text input.
       uint8_t buf[64] = {0};
@@ -1057,16 +1146,30 @@ void vimode_input(struct seat *seat, struct terminal *term,
                                        sizeof(buf));
       }
 
-      // update_search_result = redraw = count > 0;
-
       if (count > 0) {
         search_add_chars(term, (const char *)buf, count);
         render_refresh_vimode_search_box(term);
+        search_string_updated = true;
+      }
+    }
+
+    LOG_DBG("search: buffer: %ls", (const wchar_t *)term->vimode.search.buf);
+    if (search_string_updated) {
+      struct range match;
+      bool const matched = find_next_from_cursor(
+          term, term->vimode.search.buf, term->vimode.search.len,
+          term->vimode.search.direction, &match);
+      if (matched > 0) {
+        term->vimode.search.match = match.start;
+        term->vimode.search.match_len = term->vimode.search.len;
+        struct coord const delta =
+            delta_cursor_to_abs_coord(term, term->vimode.search.match);
+        // TODO (kociap): update selection.
+        move_cursor_delta(term, delta);
+        center_view_on_cursor(term);
+      } else {
+        restore_pre_search_state(term);
       }
     }
   }
-
-  LOG_DBG("search: buffer: %ls", (const wchar_t *)term->vimode.search.buf);
-  // if (update_search_result)
-  //   search_find_next(term, search_direction);
 }
