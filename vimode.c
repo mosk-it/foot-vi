@@ -88,6 +88,7 @@ static void damage_cursor_cell(struct terminal *const term) {
   struct coord const cursor =
       offset_to_view_relative(term, term->vimode.cursor);
   term_damage_cell_in_view(term, cursor.row, cursor.col);
+  render_refresh(term);
 }
 
 static void clip_cursor_to_view(struct terminal *const term) {
@@ -138,6 +139,102 @@ static void update_selection(struct seat *const seat,
     printf("UPDATING SELECTION [row=%d; col=%d]\n", cursor.row, cursor.col);
     selection_update(term, cursor.col, cursor.row);
   }
+}
+
+static void damage_highlights(struct terminal *const term) {
+  struct highlight_location const *location = term->vimode.highlights;
+  int const offset = term->grid->offset;
+  printf("DAMAGING HIGHLIGHT CELLS: ");
+  while (location != NULL) {
+    struct coord const start = location->range.start;
+    struct coord const end = location->range.end;
+    for (int col = start.col; col <= end.col; col += 1) {
+      printf("(%d, %d) ", start.row, col);
+      term_damage_cell(term, start.row - offset, col);
+    }
+    location = location->next;
+  }
+  printf("\n");
+  render_refresh(term);
+}
+
+static void clear_highlights(struct terminal *const term) {
+  damage_highlights(term);
+  struct highlight_location const *location = term->vimode.highlights;
+  while (location != NULL) {
+    struct highlight_location const *next = location->next;
+    free((void *)location);
+    location = next;
+  }
+  term->vimode.highlights = NULL;
+}
+
+// calculate_highlight_regions
+//
+// Build a list of regions consisting of all current search matches.
+// The regions are split so that each one spans at most a single line.
+// The regions are in absolute row coordinates.
+//
+static void calculate_highlight_regions(struct terminal *const term) {
+  char32_t const *search_buf = term->vimode.search.buf;
+  size_t search_len = term->vimode.search.len;
+  if (search_buf == NULL) {
+    search_buf = term->vimode.confirmed_search.buf;
+    search_len = term->vimode.confirmed_search.len;
+  }
+
+  struct highlight_location *start = NULL;
+  struct highlight_location *current = NULL;
+  struct search_match_iterator iter =
+      search_matches_new_iter(term, search_buf, search_len);
+  for (struct range match = search_matches_next(&iter); match.start.row >= 0;
+       match = search_matches_next(&iter)) {
+    int r = match.start.row;
+    int start_col = match.start.col;
+    int const end_row = match.end.row;
+
+    while (true) {
+      const int end_col = r == end_row ? match.end.col : term->cols - 1;
+      struct highlight_location *location =
+          xmalloc(sizeof(struct highlight_location));
+      location->next = NULL;
+      location->range = (struct range){
+          .start.row = r,
+          .start.col = start_col,
+          .end.row = end_row,
+          .end.col = end_col,
+      };
+      r += 1;
+      start_col = 0;
+      if (start != NULL) {
+        current->next = location;
+        current = location;
+      } else {
+        start = location;
+        current = location;
+      }
+      if (r > end_row) {
+        break;
+      }
+    }
+  }
+  term->vimode.highlights = start;
+}
+
+static void update_highlights(struct terminal *const term) {
+  clear_highlights(term);
+  calculate_highlight_regions(term);
+  struct highlight_location const *location = term->vimode.highlights;
+  printf("NEW HIGHLIGHT REGIONS: ");
+  while (location != NULL) {
+    struct highlight_location const *next = location->next;
+    printf("[(%d, %d) - (%d, %d)] ", location->range.start.row,
+           location->range.start.col, location->range.end.row,
+           location->range.end.col);
+    location = next;
+  }
+  printf("\n");
+  damage_highlights(term);
 }
 
 /*
@@ -309,6 +406,7 @@ void vimode_cancel(struct terminal *term) {
   printf("VIMODE CANCEL\n");
 
   cancel_search(term, false);
+  clear_highlights(term);
 
   term->is_vimming = false;
 
@@ -534,22 +632,25 @@ static bool find_next_from_cursor(struct terminal *const term,
   return find_next(term, buf, len, direction, start, end, match);
 }
 
-struct search_match_iterator search_matches_new_iter(struct terminal *term) {
+struct search_match_iterator
+search_matches_new_iter(struct terminal *const term, char32_t const *const buf,
+                        size_t const len) {
   return (struct search_match_iterator){
       .term = term,
       .start = {0, 0},
+      .buf = buf,
+      .len = len,
   };
 }
 
 struct range search_matches_next(struct search_match_iterator *iter) {
   struct terminal *term = iter->term;
   struct grid *grid = term->grid;
-
-  if (term->vimode.search.match_len == 0)
-    goto no_match;
-
-  if (iter->start.row >= term->rows)
-    goto no_match;
+  if (iter->buf == NULL || iter->len == 0 || iter->start.row >= term->rows) {
+    iter->start.row = -1;
+    iter->start.col = -1;
+    return (struct range){{-1, -1}, {-1, -1}};
+  }
 
   xassert(iter->start.row >= 0);
   xassert(iter->start.row < term->rows);
@@ -565,25 +666,16 @@ struct range search_matches_next(struct search_match_iterator *iter) {
   /* BUG: matches *starting* outside the view, but ending *inside*, aren't
    * matched */
   struct range match;
-  // TODO (kociap): consider whether using active search buffer is
-  // reasonable.
-  bool found = find_next(term, term->vimode.search.buf, term->vimode.search.len,
-                         SEARCH_FORWARD, abs_start, abs_end, &match);
-  if (!found)
-    goto no_match;
+  bool found = find_next(term, iter->buf, iter->len, SEARCH_FORWARD, abs_start,
+                         abs_end, &match);
+  if (!found) {
+    iter->start.row = -1;
+    iter->start.col = -1;
+    return (struct range){{-1, -1}, {-1, -1}};
+  }
 
   LOG_DBG("match at (absolute coordinates) %dx%d-%dx%d", match.start.row,
           match.start.col, match.end.row, match.end.col);
-
-  /* Convert absolute row numbers back to view relative */
-  match.start.row = match.start.row - grid->view + grid->num_rows;
-  match.start.row &= grid->num_rows - 1;
-  match.end.row = match.end.row - grid->view + grid->num_rows;
-  match.end.row &= grid->num_rows - 1;
-
-  LOG_DBG("match at (view-local coordinates) %dx%d-%dx%d, view=%d",
-          match.start.row, match.start.col, match.end.row, match.end.col,
-          grid->view);
 
   /* Assert match end comes *after* the match start */
   xassert(
@@ -591,17 +683,17 @@ struct range search_matches_next(struct search_match_iterator *iter) {
       (match.end.row == match.start.row && match.end.col >= match.start.col));
 
   /* Assert the match starts at, or after, the iterator position */
-  xassert(match.start.row > iter->start.row ||
-          (match.start.row == iter->start.row &&
-           match.start.col >= iter->start.col));
+  xassert(
+      match.start.row > abs_start.row ||
+      (match.start.row == abs_start.row && match.start.col >= abs_start.col));
 
   /* Continue at next column, next time */
-  iter->start.row = match.start.row;
+  iter->start.row += match.start.row - abs_start.row;
   iter->start.col = match.start.col + 1;
 
   if (iter->start.col >= term->cols) {
     iter->start.col = 0;
-    iter->start.row++; /* Overflow is caught in next iteration */
+    iter->start.row += 1; /* Overflow is caught in next iteration */
   }
 
   xassert(iter->start.row >= 0);
@@ -609,11 +701,6 @@ struct range search_matches_next(struct search_match_iterator *iter) {
   xassert(iter->start.col >= 0);
   xassert(iter->start.col < term->cols);
   return match;
-
-no_match:
-  iter->start.row = -1;
-  iter->start.col = -1;
-  return (struct range){{-1, -1}, {-1, -1}};
 }
 
 static void add_wchars(struct terminal *term, char32_t *src, size_t count) {
@@ -717,6 +804,7 @@ void vimode_view_down(struct terminal *const term, int const delta) {
   term->vimode.cursor.row -= delta;
   printf("VIMODE VIEW DOWN [delta=%d]\n", delta);
   clip_cursor_to_view(term);
+  update_highlights(term);
 }
 
 static void move_cursor_delta(struct terminal *const term,
@@ -792,11 +880,13 @@ static void execute_vimode_binding(struct seat *seat, struct terminal *term,
   case BIND_ACTION_VIMODE_UP:
     move_cursor_vertical(term, -1);
     update_selection(seat, term);
+    update_highlights(term);
     break;
 
   case BIND_ACTION_VIMODE_DOWN:
     move_cursor_vertical(term, 1);
     update_selection(seat, term);
+    update_highlights(term);
     break;
 
   case BIND_ACTION_VIMODE_LEFT:
@@ -813,36 +903,42 @@ static void execute_vimode_binding(struct seat *seat, struct terminal *term,
     cmd_scrollback_up(term, term->rows);
     clip_cursor_to_view(term);
     update_selection(seat, term);
+    update_highlights(term);
     break;
 
   case BIND_ACTION_VIMODE_DOWN_PAGE:
     cmd_scrollback_down(term, term->rows);
     clip_cursor_to_view(term);
     update_selection(seat, term);
+    update_highlights(term);
     break;
 
   case BIND_ACTION_VIMODE_UP_HALF_PAGE:
     cmd_scrollback_up(term, max(term->rows / 2, 1));
     clip_cursor_to_view(term);
     update_selection(seat, term);
+    update_highlights(term);
     break;
 
   case BIND_ACTION_VIMODE_DOWN_HALF_PAGE:
     cmd_scrollback_down(term, max(term->rows / 2, 1));
     clip_cursor_to_view(term);
     update_selection(seat, term);
+    update_highlights(term);
     break;
 
   case BIND_ACTION_VIMODE_UP_LINE:
     cmd_scrollback_up(term, 1);
     clip_cursor_to_view(term);
     update_selection(seat, term);
+    update_highlights(term);
     break;
 
   case BIND_ACTION_VIMODE_DOWN_LINE:
     cmd_scrollback_down(term, 1);
     clip_cursor_to_view(term);
     update_selection(seat, term);
+    update_highlights(term);
     break;
 
   case BIND_ACTION_VIMODE_FIRST_LINE:
@@ -851,6 +947,7 @@ static void execute_vimode_binding(struct seat *seat, struct terminal *term,
     term->vimode.cursor.row = cursor_from_scrollback_relative(term, 0);
     damage_cursor_cell(term);
     update_selection(seat, term);
+    update_highlights(term);
     break;
 
   case BIND_ACTION_VIMODE_LAST_LINE:
@@ -859,6 +956,7 @@ static void execute_vimode_binding(struct seat *seat, struct terminal *term,
     term->vimode.cursor.row = term->rows - 1;
     damage_cursor_cell(term);
     update_selection(seat, term);
+    update_highlights(term);
     break;
 
   case BIND_ACTION_VIMODE_CANCEL: {
@@ -906,6 +1004,7 @@ static void execute_vimode_binding(struct seat *seat, struct terminal *term,
       // TODO (kociap): update selection.
       move_cursor_delta(term, delta);
     }
+    update_highlights(term);
     break;
   }
 
@@ -1170,6 +1269,7 @@ void vimode_input(struct seat *seat, struct terminal *term,
       } else {
         restore_pre_search_state(term);
       }
+      update_highlights(term);
     }
   }
 }

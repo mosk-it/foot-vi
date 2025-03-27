@@ -12,6 +12,7 @@
 #include <pthread.h>
 
 #include "macros.h"
+#include "terminal.h"
 #if HAS_INCLUDE(<pthread_np.h>)
  #include <pthread_np.h>
  #define pthread_setname_np(thread, name) (pthread_set_name_np(thread, name), 0)
@@ -688,6 +689,30 @@ draw_cursor(const struct terminal *term, const struct cell *cell,
     }
 }
 
+static bool is_cell_highlighted(struct terminal* const term, 
+                                struct coord const cell)
+{
+    struct highlight_location const* location = term->vimode.highlights;
+    int const row_abs = grid_row_absolute_in_view(term->grid, cell.row);
+    while(location != NULL) {
+        // End the search early if we are past the possible locations.
+        if(location->range.start.row > row_abs) {
+            break;
+        }
+
+        int const start_col = location->range.start.col;
+        int const end_col = location->range.end.col;
+        if(location->range.start.row == row_abs && cell.col >= start_col && 
+           cell.col <= end_col) 
+        {
+            return true;
+        }
+
+        location = location->next;
+    }
+    return false;
+}
+
 static int
 render_cell(struct terminal *term, pixman_image_t *pix,
             pixman_region32_t *damage, struct row *row, int row_no, int col,
@@ -706,6 +731,8 @@ render_cell(struct terminal *term, pixman_image_t *pix,
     const int y = term->margins.top + row_no * height;
 
     const bool is_selected = cell->attrs.selected;
+    const bool is_highlighted = 
+        is_cell_highlighted(term, (struct coord){.row = row_no, .col = col});
 
     uint32_t _fg = 0;
     uint32_t _bg = 0;
@@ -785,6 +812,12 @@ render_cell(struct terminal *term, pixman_image_t *pix,
             alpha = 0xffff;
         }
     } else {
+        if(is_highlighted) {
+            // TODO (kociap): colors for the highlight.
+            _fg = term->colors.table[0];
+            _bg = term->colors.table[1];
+        }
+
         if (unlikely(cell->attrs.reverse)) {
             uint32_t swap = _fg;
             _fg = _bg;
@@ -1980,7 +2013,7 @@ render_overlay(struct terminal *term)
     const bool unicode_mode_active = term->unicode_mode.active;
 
     const enum overlay_style style =
-        term->is_vimming ? OVERLAY_SEARCH :
+        term->is_vimming ? OVERLAY_NONE :
         term->flash.active ? OVERLAY_FLASH :
         unicode_mode_active ? OVERLAY_UNICODE_MODE :
         OVERLAY_NONE;
@@ -1999,7 +2032,6 @@ render_overlay(struct terminal *term)
     pixman_color_t color;
 
     switch (style) {
-    case OVERLAY_SEARCH:
     case OVERLAY_UNICODE_MODE:
         color = (pixman_color_t){0, 0, 0, 0x7fff};
         break;
@@ -2033,125 +2065,8 @@ render_overlay(struct terminal *term)
     /* Bounding rectangle of damaged areas - for wl_surface_damage_buffer() */
     pixman_box32_t damage_bounds;
 
-    if (style == OVERLAY_SEARCH) {
-        /*
-         * When possible, we only update the areas that have *changed*
-         * since the last frame. That means:
-         *
-         *  - clearing/erasing cells that are now selected, but weren't
-         *    in the last frame
-         *  - dimming cells that were selected, but aren't anymore
-         *
-         * To do this, we save the last frame's selected cells as a
-         * pixman region.
-         *
-         * Then, we calculate the corresponding region for this
-         * frame's selected cells.
-         *
-         * Last frame's region minus this frame's region gives us the
-         * region that needs to be *dimmed* in this frame
-         *
-         * This frame's region minus last frame's region gives us the
-         * region that needs to be *cleared* in this frame.
-         *
-         * Finally, the union of the two "diff" regions above, gives
-         * us the total region affected by a change, in either way. We
-         * use this as the bounding box for the
-         * wl_surface_damage_buffer() call.
-         */
-        pixman_region32_t *see_through = &term->render.last_overlay_clip;
-        pixman_region32_t old_see_through;
-        const bool buffer_reuse =
-            buf == term->render.last_overlay_buf &&
-            style == term->render.last_overlay_style &&
-            buf->age == 0;
-
-        if (!buffer_reuse) {
-            /* Can't reuse last frame's damage - set to full window,
-             * to ensure *everything* is updated */
-            pixman_region32_init_rect(
-                &old_see_through, 0, 0, buf->width, buf->height);
-        } else {
-            /* Use last frame's saved region */
-            pixman_region32_init(&old_see_through);
-            pixman_region32_copy(&old_see_through, see_through);
-        }
-
-        pixman_region32_clear(see_through);
-
-        /* Build region consisting of all current search matches */
-        // TODO (kociap): commented this because no search atm.
-        // struct search_match_iterator iter = search_matches_new_iter(term);
-        // for (struct range match = search_matches_next(&iter);
-        //      match.start.row >= 0;
-        //      match = search_matches_next(&iter))
-        // {
-        //     int r = match.start.row;
-        //     int start_col = match.start.col;
-        //     const int end_row = match.end.row;
-        //
-        //     while (true) {
-        //         const int end_col =
-        //             r == end_row ? match.end.col : term->cols - 1;
-        //
-        //         int x = term->margins.left + start_col * term->cell_width;
-        //         int y = term->margins.top + r * term->cell_height;
-        //         int width = (end_col + 1 - start_col) * term->cell_width;
-        //         int height = 1 * term->cell_height;
-        //
-        //         pixman_region32_union_rect(
-        //             see_through, see_through, x, y, width, height);
-        //
-        //         if (++r > end_row)
-        //             break;
-        //
-        //         start_col = 0;
-        //     }
-        // }
-
-        /* Areas that need to be cleared: cells that were dimmed in
-         * the last frame but is now see-through */
-        pixman_region32_t new_see_through;
-        pixman_region32_init(&new_see_through);
-
-        if (buffer_reuse)
-            pixman_region32_subtract(&new_see_through, see_through, &old_see_through);
-        else {
-            /* Buffer content is unknown - explicitly clear *all*
-             * current see-through areas */
-            pixman_region32_copy(&new_see_through, see_through);
-        }
-        pixman_image_set_clip_region32(buf->pix[0], &new_see_through);
-
-        /* Areas that need to be dimmed: cells that were cleared in
-         * the last frame but is not anymore */
-        pixman_region32_t new_dimmed;
-        pixman_region32_init(&new_dimmed);
-        pixman_region32_subtract(&new_dimmed, &old_see_through, see_through);
-        pixman_region32_fini(&old_see_through);
-
-        /* Total affected area */
-        pixman_region32_t damage;
-        pixman_region32_init(&damage);
-        pixman_region32_union(&damage, &new_see_through, &new_dimmed);
-        damage_bounds = damage.extents;
-
-        /* Clear cells that became selected in this frame. */
-        pixman_image_fill_rectangles(
-            PIXMAN_OP_SRC, buf->pix[0], &(pixman_color_t){0}, 1,
-            &(pixman_rectangle16_t){0, 0, term->width, term->height});
-
-        /* Set clip region for the newly dimmed cells. The actual
-         * paint call is done below */
-        pixman_image_set_clip_region32(buf->pix[0], &new_dimmed);
-
-        pixman_region32_fini(&new_see_through);
-        pixman_region32_fini(&new_dimmed);
-        pixman_region32_fini(&damage);
-    }
-
-    else if (buf == term->render.last_overlay_buf &&
-             style == term->render.last_overlay_style)
+    if (buf == term->render.last_overlay_buf &&
+        style == term->render.last_overlay_style)
     {
         xassert(style == OVERLAY_FLASH || style == OVERLAY_UNICODE_MODE);
         shm_did_not_use_buf(buf);
@@ -3624,8 +3539,7 @@ grid_render(struct terminal *term)
 
     pixman_region32_fini(&damage);
 
-    // TODO (kociap): we want to eventually render the overlays.
-    // render_overlay(term);
+    render_overlay(term);
     render_ime_preedit(term, buf);
     render_scrollback_position(term);
 
@@ -3744,7 +3658,6 @@ render_search_box_cursor(
 static void
 render_search_box(struct terminal *term)
 {
-    printf("REDRAWING SEARCH BOX\n");
     xassert(term->window->search.sub != NULL);
 
     /*

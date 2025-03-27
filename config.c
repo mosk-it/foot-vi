@@ -3376,6 +3376,7 @@ add_default_vimode_search_bindings(struct config *conf)
     const struct config_key_binding bindings[] = {
         {BIND_ACTION_VIMODE_SEARCH_CONFIRM, m("none"), {{XKB_KEY_Return}}},
         {BIND_ACTION_VIMODE_SEARCH_CANCEL, m("none"), {{XKB_KEY_Escape}}},
+        {BIND_ACTION_VIMODE_SEARCH_CANCEL, m(XKB_MOD_NAME_CTRL), {{XKB_KEY_c}}},
         {BIND_ACTION_VIMODE_SEARCH_DELETE_PREV_CHAR, m("none"), {{XKB_KEY_BackSpace}}},
         {BIND_ACTION_VIMODE_SEARCH_LEFT, m(XKB_MOD_NAME_CTRL), {{XKB_KEY_h}}},
         {BIND_ACTION_VIMODE_SEARCH_LEFT, m("none"), {{XKB_KEY_leftarrow}}},

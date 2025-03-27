@@ -25,9 +25,13 @@ void vimode_input(struct seat *seat, struct terminal *term,
 struct search_match_iterator {
   struct terminal *term;
   struct coord start;
+  char32_t const *buf;
+  size_t len;
 };
 
-struct search_match_iterator search_matches_new_iter(struct terminal *term);
+struct search_match_iterator search_matches_new_iter(struct terminal *term,
+                                                     char32_t const *const buf,
+                                                     size_t const len);
 struct range search_matches_next(struct search_match_iterator *iter);
 
 void vimode_view_down(struct terminal *term, int delta);

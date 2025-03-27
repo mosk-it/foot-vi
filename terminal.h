@@ -374,8 +374,6 @@ enum term_surface {
 
 enum overlay_style {
     OVERLAY_NONE,
-    // TODO (kociap): rename to OVERLAY_VIMODE
-    OVERLAY_SEARCH,
     OVERLAY_FLASH,
     OVERLAY_UNICODE_MODE,
 };
@@ -658,6 +656,15 @@ struct terminal {
             size_t len;
             enum search_direction direction;
         } confirmed_search;
+
+        /*
+         * Highlight ranges in absolute coordinates.
+         * Sorted in ascending order by the start row and column.
+         */
+        struct highlight_location {
+            struct highlight_location const* next;
+            struct range range;
+        } const* highlights;
     } vimode;
 
     struct wayland *wl;
@@ -899,6 +906,7 @@ int term_pt_or_px_as_pixels(
 
 void term_window_configured(struct terminal *term);
 
+void term_damage_cell(struct terminal* term, int row, int col);
 void term_damage_cell_in_view(struct terminal* term, int row, int col);
 void term_damage_rows(struct terminal *term, int start, int end);
 void term_damage_rows_in_view(struct terminal *term, int start, int end);

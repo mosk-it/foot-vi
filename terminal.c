@@ -2484,6 +2484,18 @@ term_font_baseline(const struct terminal *term)
 }
 
 void
+term_damage_cell(struct terminal* const term, int const row, int const col)
+{
+    if(col >= term->grid->num_cols || col < 0) {
+        return;
+    }
+
+    struct row* const r = grid_row(term->grid, row);
+    r->dirty = true;
+    r->cells[col].attrs.clean = 0;
+}
+
+void
 term_damage_cell_in_view(struct terminal* const term, int const row, int const col)
 {
     if(col >= term->grid->num_cols || col < 0) {
