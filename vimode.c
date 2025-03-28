@@ -941,14 +941,16 @@ static void execute_vimode_binding(struct seat *seat, struct terminal *term,
     update_highlights(term);
     break;
 
-  case BIND_ACTION_VIMODE_FIRST_LINE:
+  case BIND_ACTION_VIMODE_FIRST_LINE: {
     cmd_scrollback_up(term, term->grid->num_rows);
     damage_cursor_cell(term);
-    term->vimode.cursor.row = cursor_from_scrollback_relative(term, 0);
+    int const view_row = view_to_scrollback_relative(term);
+    term->vimode.cursor.row = cursor_from_scrollback_relative(term, view_row);
     damage_cursor_cell(term);
     update_selection(seat, term);
     update_highlights(term);
     break;
+  }
 
   case BIND_ACTION_VIMODE_LAST_LINE:
     cmd_scrollback_down(term, term->grid->num_rows);
