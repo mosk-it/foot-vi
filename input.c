@@ -545,8 +545,8 @@ execute_binding(struct seat *seat, struct terminal *term,
         return true;
 
     case BIND_ACTION_SELECT_QUOTE:
-        selection_start(
-            term, seat->mouse.col, seat->mouse.row, SELECTION_QUOTE_WISE, false);
+        selection_start_matching_delimiters(
+            term, (struct coord){.row = seat->mouse.row, .col = seat->mouse.col}, false);
         return true;
 
     case BIND_ACTION_SELECT_ROW:

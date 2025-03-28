@@ -299,7 +299,6 @@ foreach_selected(
     switch (term->selection.kind) {
     case SELECTION_CHAR_WISE:
     case SELECTION_WORD_WISE:
-    case SELECTION_QUOTE_WISE:
     case SELECTION_LINE_WISE:
         foreach_selected_normal(term, start, end, cb, data);
         return;
@@ -653,6 +652,83 @@ selection_find_line_boundary_right(struct terminal *term, struct coord *pos)
     }
 }
 
+static void selection_start_linewise(struct terminal* const term,
+                                     struct coord start)
+{
+    term->selection.kind = SELECTION_LINE_WISE;
+    struct coord end = start;
+    selection_find_line_boundary_left(term, &start);
+    selection_find_line_boundary_right(term, &end);
+
+    term->selection.coords.start = (struct coord){
+        start.col, term->grid->view + start.row};
+    term->selection.pivot.start = term->selection.coords.start;
+    term->selection.pivot.end = (struct coord){end.col, term->grid->view + end.row};
+
+    selection_update(term, end.col, end.row);
+}
+
+// TODO (kociap): The function could be extended to match arbitrary
+// pairs of delimiters.
+void selection_start_matching_delimiters(struct terminal* const term, 
+                                         struct coord const start, 
+                                         bool const spaces_only) 
+{
+    selection_cancel(term); 
+    LOG_DBG("matching-delimiters selection started at %d,%d", start.row, 
+            start.col);
+    term->selection.ongoing = true;
+    term->selection.spaces_only = spaces_only;
+
+    struct coord delimiter_start = start;
+    struct coord delimiter_end = start;
+
+    char32_t quote_char = '\0';
+    bool found_left = selection_find_quote_left(term, &delimiter_start, &quote_char);
+    bool found_right = selection_find_quote_right(term, &delimiter_end, quote_char);
+
+    if (found_left && !found_right) {
+        xassert(quote_char != '\0');
+
+        /*
+         * Try to flip the quote character we're looking for.
+         *
+         * This lets us handle things like:
+         *
+         *   "nested 'quotes are fun', right"
+         *
+         * In the example above, starting the selection at
+         * "right", will otherwise not match. find-left will find
+         * the single quote, causing find-right to fail.
+         *
+         * By flipping the quote-character, and re-trying, we
+         * find-left will find the starting double quote, letting
+         * find-right succeed as well.
+         */
+
+        if (quote_char == '\'')
+            quote_char = '"';
+        else if (quote_char == '"')
+            quote_char = '\'';
+
+        found_left = selection_find_quote_left(term, &delimiter_start, &quote_char);
+        found_right = selection_find_quote_right(term, &delimiter_end, quote_char);
+    }
+
+    if (found_left && found_right) {
+        term->selection.coords.start = (struct coord){
+            delimiter_start.col, term->grid->view + delimiter_start.row};
+
+        term->selection.pivot.start = term->selection.coords.start;
+        term->selection.pivot.end = (struct coord){delimiter_end.col, term->grid->view + delimiter_end.row};
+
+        term->selection.kind = SELECTION_WORD_WISE;
+        selection_update(term, delimiter_end.col, delimiter_end.row);
+    } else {
+        selection_start_linewise(term, start);
+    }
+}
+
 void
 selection_start(struct terminal *term, int col, int row,
                 enum selection_kind kind,
@@ -663,7 +739,6 @@ selection_start(struct terminal *term, int col, int row,
     LOG_DBG("%s selection started at %d,%d",
             kind == SELECTION_CHAR_WISE ? "character-wise" :
             kind == SELECTION_WORD_WISE ? "word-wise" :
-            kind == SELECTION_QUOTE_WISE ? "quote-wise" :
             kind == SELECTION_LINE_WISE ? "line-wise" :
             kind == SELECTION_BLOCK ? "block" : "<unknown>",
             row, col);
@@ -706,70 +781,9 @@ selection_start(struct terminal *term, int col, int row,
         break;
     }
 
-    case SELECTION_QUOTE_WISE: {
-        struct coord start = {col, row}, end = {col, row};
-
-        char32_t quote_char = '\0';
-        bool found_left = selection_find_quote_left(term, &start, &quote_char);
-        bool found_right = selection_find_quote_right(term, &end, quote_char);
-
-        if (found_left && !found_right) {
-            xassert(quote_char != '\0');
-
-            /*
-             * Try to flip the quote character we're looking for.
-             *
-             * This lets us handle things like:
-             *
-             *   "nested 'quotes are fun', right"
-             *
-             * In the example above, starting the selection at
-             * "right", will otherwise not match. find-left will find
-             * the single quote, causing find-right to fail.
-             *
-             * By flipping the quote-character, and re-trying, we
-             * find-left will find the starting double quote, letting
-             * find-right succeed as well.
-             */
-
-            if (quote_char == '\'')
-                quote_char = '"';
-            else if (quote_char == '"')
-                quote_char = '\'';
-
-            found_left = selection_find_quote_left(term, &start, &quote_char);
-            found_right = selection_find_quote_right(term, &end, quote_char);
-        }
-
-        if (found_left && found_right) {
-            term->selection.coords.start = (struct coord){
-                start.col, term->grid->view + start.row};
-
-            term->selection.pivot.start = term->selection.coords.start;
-            term->selection.pivot.end = (struct coord){end.col, term->grid->view + end.row};
-
-            term->selection.kind = SELECTION_WORD_WISE;
-            selection_update(term, end.col, end.row);
-            break;
-        } else {
-            term->selection.kind = SELECTION_LINE_WISE;
-            /* FALLTHROUGH */
-        }
-    }
-
-    case SELECTION_LINE_WISE: {
-        struct coord start = {0, row}, end = {term->cols - 1, row};
-        selection_find_line_boundary_left(term, &start);
-        selection_find_line_boundary_right(term, &end);
-
-        term->selection.coords.start = (struct coord){
-            start.col, term->grid->view + start.row};
-        term->selection.pivot.start = term->selection.coords.start;
-        term->selection.pivot.end = (struct coord){end.col, term->grid->view + end.row};
-
-        selection_update(term, end.col, end.row);
-        break;
-    }
+    case SELECTION_LINE_WISE: 
+       selection_start_linewise(term, (struct coord){.row = row, .col = col});
+       break;
 
     case SELECTION_NONE:
         BUG("Invalid selection kind");
@@ -1213,10 +1227,6 @@ selection_update(struct terminal *term, int col, int row)
         }
         break;
 
-    case SELECTION_QUOTE_WISE:
-        BUG("quote-wise selection should always be transformed to either word-wise or line-wise");
-        break;
-
     case SELECTION_LINE_WISE:
         switch (term->selection.direction) {
         case SELECTION_LEFT: {
@@ -1389,11 +1399,6 @@ selection_extend_normal(struct terminal *term, int col, int row,
         break;
     }
 
-    case SELECTION_QUOTE_WISE: {
-        BUG("quote-wise selection should always be transformed to either word-wise or line-wise");
-        break;
-    }
-
     case SELECTION_LINE_WISE: {
         xassert(new_kind == SELECTION_CHAR_WISE ||
                 new_kind == SELECTION_LINE_WISE);
@@ -1528,7 +1533,6 @@ selection_extend(struct seat *seat, struct terminal *term,
 
     case SELECTION_CHAR_WISE:
     case SELECTION_WORD_WISE:
-    case SELECTION_QUOTE_WISE:
     case SELECTION_LINE_WISE:
         selection_extend_normal(term, col, row, new_kind);
         break;

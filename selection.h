@@ -11,6 +11,19 @@ extern const struct zwp_primary_selection_device_v1_listener primary_selection_d
 void selection_start(
     struct terminal *term, int col, int row,
     enum selection_kind new_kind, bool spaces_only);
+
+// selection_start_matching_delimiters
+//
+// Select text enclosed by a pair of matching delimiters. If a pair of
+// enclosing delimiters is not found, a linewise selection is started.
+//
+// Currently, the delimiters are restricted to single quote (') and
+// double quote (").
+//
+void selection_start_matching_delimiters(struct terminal* const term,
+                                         struct coord const start,
+                                         bool spaces_only);
+
 void selection_update(struct terminal *term, int col, int row);
 void selection_finalize(
     struct seat *seat, struct terminal *term, uint32_t serial);
