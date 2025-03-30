@@ -1770,7 +1770,7 @@ render_ime_preedit_for_seat(struct terminal *term, struct seat *seat,
     if (likely(seat->ime.preedit.cells == NULL))
         return;
 
-    if (unlikely(term->is_vimming))
+    if (unlikely(term->vimode.active))
         return;
 
     const bool gamma_correct = wayl_do_linear_blending(term->wl, term->conf);
@@ -2013,7 +2013,7 @@ render_overlay(struct terminal *term)
     const bool unicode_mode_active = term->unicode_mode.active;
 
     const enum overlay_style style =
-        term->is_vimming ? OVERLAY_NONE :
+        term->vimode.active ? OVERLAY_NONE :
         term->flash.active ? OVERLAY_FLASH :
         unicode_mode_active ? OVERLAY_UNICODE_MODE :
         OVERLAY_NONE;
@@ -2134,7 +2134,7 @@ render_worker_thread(void *_ctx)
          * not dependent on the terminal state.
          */
         struct coord cursor = {-1, -1};
-        if (term->is_vimming) {
+        if (term->vimode.active) {
             cursor = term->vimode.cursor;
             cursor.row += term->grid->offset;
             cursor.row -= term->grid->view;
@@ -3024,7 +3024,7 @@ render_scrollback_position(struct terminal *term)
     case SCROLLBACK_INDICATOR_POSITION_RELATIVE: {
         int lines = term->rows - 2;  /* Avoid using first and last rows */
         // TODO (kociap): whatever this does
-        // if (term->is_searching) {
+        // if (term->vimode.searching) {
         //     /* Make sure we don't collide with the scrollback search box */
         //     lines--;
         // }
@@ -5230,7 +5230,7 @@ render_refresh_csd(struct terminal *term)
 void
 render_refresh_vimode_search_box(struct terminal *term)
 {
-    if (term->is_vimming && term->vimode.is_searching)
+    if (term->vimode.active && term->vimode.searching)
         term->render.refresh.vimode_search_box = true;
 }
 

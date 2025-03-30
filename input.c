@@ -1653,7 +1653,7 @@ key_press_release(struct seat *seat, struct terminal *term, uint32_t serial,
             return;
         }
 
-        else if (term->is_vimming) {
+        else if (term->vimode.active) {
             printf("VIMODE INPUT\n");
             if (should_repeat)
                 start_repeater(seat, key);
@@ -2783,7 +2783,7 @@ wl_pointer_motion(void *data, struct wl_pointer *wl_pointer,
             selection_stop_scroll_timer(term);
 
         /* Update selection */
-        if (!term->is_vimming) {
+        if (!term->vimode.active) {
             if (auto_scroll_direction != SELECTION_SCROLL_NOT) {
                 /*
                  * Start 'selection auto-scrolling'

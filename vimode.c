@@ -291,7 +291,7 @@ static bool search_ensure_size(struct terminal *term, size_t wanted_size) {
 
 static void start_search(struct terminal *term,
                          enum search_direction const direction) {
-  if (term->vimode.is_searching) {
+  if (term->vimode.searching) {
     return;
   }
 
@@ -308,7 +308,7 @@ static void start_search(struct terminal *term,
   term->vimode.search.direction = direction;
   term->vimode.search.match = (struct coord){-1, -1};
   term->vimode.search.match_len = 0;
-  term->vimode.is_searching = true;
+  term->vimode.searching = true;
 
   /* On-demand instantiate wayland surface */
   bool ret =
@@ -327,17 +327,18 @@ static void restore_pre_search_state(struct terminal *const term) {
       ensure_view_is_allocated(term, term->vimode.search.original_view);
   term_damage_view(term);
   render_refresh(term);
+  update_selection(term);
 }
 
 static void cancel_search(struct terminal *const term,
                           bool const restore_original) {
-  if (!term->vimode.is_searching) {
+  if (!term->vimode.searching) {
     return;
   }
 
   wayl_win_subsurface_destroy(&term->window->search);
-
-  term->vimode.is_searching = false;
+  clear_highlights(term);
+  term->vimode.searching = false;
   struct vimode_search *const search = &term->vimode.search;
   if (restore_original) {
     restore_pre_search_state(term);
@@ -389,14 +390,14 @@ void vimode_begin(struct terminal *term) {
     term_ime_enable(term);
   }
 
-  term->is_vimming = true;
+  term->vimode.active = true;
 
   term_xcursor_update(term);
 }
 
 // TODO (kociap): vimode is being cancelled by cursor input.
 void vimode_cancel(struct terminal *term) {
-  if (!term->is_vimming) {
+  if (!term->vimode.active) {
     return;
   }
 
@@ -406,7 +407,7 @@ void vimode_cancel(struct terminal *term) {
   clear_highlights(term);
   selection_cancel(term);
 
-  term->is_vimming = false;
+  term->vimode.active = false;
 
   /* Reset IME state */
   if (term_ime_is_enabled(term)) {
@@ -793,7 +794,7 @@ void search_add_chars(struct terminal *term, const char *src, size_t count) {
 // }
 
 void vimode_view_down(struct terminal *const term, int const delta) {
-  if (!term->is_vimming) {
+  if (!term->vimode.active) {
     return;
   }
 
@@ -1216,7 +1217,7 @@ void vimode_input(struct seat *seat, struct terminal *term,
           ? xkb_compose_state_get_status(seat->kbd.xkb_compose_state)
           : XKB_COMPOSE_NOTHING;
 
-  if (!term->vimode.is_searching) {
+  if (!term->vimode.searching) {
     struct key_binding const *const binding = match_binding(
         &bindings->vimode, key, sym, mods, consumed, raw_syms, raw_count);
     if (binding != NULL) {
@@ -1266,10 +1267,10 @@ void vimode_input(struct seat *seat, struct terminal *term,
             delta_cursor_to_abs_coord(term, term->vimode.search.match);
         move_cursor_delta(term, delta);
         center_view_on_cursor(term);
+        update_selection(term);
       } else {
         restore_pre_search_state(term);
       }
-      update_selection(term);
       update_highlights(term);
     }
   }

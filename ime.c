@@ -177,7 +177,7 @@ done(void *data, struct zwp_text_input_v3 *zwp_text_input_v3,
         ime_reset_preedit(seat);
 
         if (term != NULL) {
-            if (term->is_vimming)
+            if (term->vimode.active)
                 // TODO (kociap): refresh
                 // render_refresh_search(term);
                 (void)0;
@@ -200,7 +200,7 @@ done(void *data, struct zwp_text_input_v3 *zwp_text_input_v3,
         size_t len = strlen(text);
 
         if (term != NULL) {
-            if (term->is_vimming) {
+            if (term->vimode.active) {
                 // TODO (kociap): input and refresh
                 // search_add_chars(term, text, len);
                 // render_refresh_search(term);
@@ -371,7 +371,7 @@ done(void *data, struct zwp_text_input_v3 *zwp_text_input_v3,
     ime_reset_pending_preedit(seat);
 
     if (term != NULL) {
-        if (term->is_vimming)
+        if (term->vimode.active)
             // TODO (kociap): refresh
             // render_refresh_search(term);
             (void)0;
@@ -481,7 +481,7 @@ ime_update_cursor_rect(struct seat *seat)
 
     /* Set in render_search_box() */
     // TODO (kociap): in vimode this most likely is not necessary.
-    // if (term->is_searching)
+    // if (term->vimode.searching)
     //     goto update;
 
     int x, y, width, height;

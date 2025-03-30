@@ -524,7 +524,7 @@ cursor_refresh(struct terminal *term)
     if (!term->window->is_configured)
         return;
 
-    if(term->is_vimming) {
+    if(term->vimode.active) {
         struct row *const row = 
             grid_row_in_view(term->grid, term->vimode.cursor.row);
         row->cells[term->vimode.cursor.col].attrs.clean = 0;

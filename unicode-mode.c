@@ -34,7 +34,7 @@ unicode_mode_updated(struct terminal *term)
     if (term == NULL)
         return;
     printf("UNICODE UPDATE\n");
-    if (term->is_vimming)
+    if (term->vimode.active)
         // TODO (kociap): refresh
         // render_refresh_search(term);
         (void)0;
@@ -60,7 +60,7 @@ unicode_mode_input(struct seat *seat, struct terminal *term,
                 term->unicode_mode.character, (int)chars, utf8);
 
         if (chars != (size_t)-1) {
-            if (term->is_vimming)
+            if (term->vimode.active)
                 // TODO (kociap): input
                 // search_add_chars(term, utf8, chars);
                 (void)0;

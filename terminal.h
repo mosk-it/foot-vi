@@ -626,12 +626,12 @@ struct terminal {
         } auto_scroll;
     } selection;
 
-    bool is_vimming;
     struct {
+        bool active;
+        bool searching;
         enum vi_mode mode;  
         // The position of the cursor (offset relative).
         struct coord cursor;
-        bool is_searching;
 
         struct {
             struct coord start;
