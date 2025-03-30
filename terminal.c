@@ -524,8 +524,16 @@ cursor_refresh(struct terminal *term)
     if (!term->window->is_configured)
         return;
 
-    term->grid->cur_row->cells[term->grid->cursor.point.col].attrs.clean = 0;
-    term->grid->cur_row->dirty = true;
+    if(term->is_vimming) {
+        struct row *const row = 
+            grid_row_in_view(term->grid, term->vimode.cursor.row);
+        row->cells[term->vimode.cursor.col].attrs.clean = 0;
+        row->dirty = true;
+    } else {
+        struct row *const row = term->grid->cur_row;
+        row->cells[term->grid->cursor.point.col].attrs.clean = 0;
+        row->dirty = true;
+    }
     render_refresh(term);
 }
 
