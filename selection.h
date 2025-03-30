@@ -8,9 +8,8 @@
 extern const struct wl_data_device_listener data_device_listener;
 extern const struct zwp_primary_selection_device_v1_listener primary_selection_device_listener;
 
-void selection_start(
-    struct terminal *term, int col, int row,
-    enum selection_kind new_kind, bool spaces_only);
+void selection_start(struct terminal *term, struct coord start,
+                     enum selection_kind kind, bool spaces_only);
 
 // selection_start_matching_delimiters
 //
@@ -20,18 +19,21 @@ void selection_start(
 // Currently, the delimiters are restricted to single quote (') and
 // double quote (").
 //
-void selection_start_matching_delimiters(struct terminal* const term,
-                                         struct coord const start,
+// Parameters:
+// start - coordinate (view-relative) of the start of the selection.
+//
+void selection_start_matching_delimiters(struct terminal* term, 
+                                         struct coord start,
                                          bool spaces_only);
 
-void selection_update(struct terminal *term, int col, int row);
+void selection_update(struct terminal *term, struct coord updated_end);
 void selection_finalize(
     struct seat *seat, struct terminal *term, uint32_t serial);
 void selection_dirty_cells(struct terminal *term);
 void selection_cancel(struct terminal *term);
 void selection_extend(
     struct seat *seat, struct terminal *term,
-    int col, int row, enum selection_kind kind);
+    struct coord point, enum selection_kind kind);
 
 bool selection_on_rows(const struct terminal *term, int start, int end);
 
@@ -89,12 +91,6 @@ void selection_start_scroll_timer(
     struct terminal *term, int interval_ns,
     enum selection_scroll_direction direction, int col);
 void selection_stop_scroll_timer(struct terminal *term);
-
-void selection_find_word_boundary_left(
-    const struct terminal *term, struct coord *pos, bool spaces_only);
-void selection_find_word_boundary_right(
-    const struct terminal *term, struct coord *pos, bool spaces_only,
-    bool stop_on_space_to_word_boundary);
 
 struct coord selection_get_start(const struct terminal *term);
 struct coord selection_get_end(const struct terminal *term);

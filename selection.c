@@ -665,7 +665,7 @@ static void selection_start_linewise(struct terminal* const term,
     term->selection.pivot.start = term->selection.coords.start;
     term->selection.pivot.end = (struct coord){end.col, term->grid->view + end.row};
 
-    selection_update(term, end.col, end.row);
+    selection_update(term, end);
 }
 
 // TODO (kociap): The function could be extended to match arbitrary
@@ -723,14 +723,14 @@ void selection_start_matching_delimiters(struct terminal* const term,
         term->selection.pivot.end = (struct coord){delimiter_end.col, term->grid->view + delimiter_end.row};
 
         term->selection.kind = SELECTION_WORD_WISE;
-        selection_update(term, delimiter_end.col, delimiter_end.row);
+        selection_update(term, delimiter_end);
     } else {
         selection_start_linewise(term, start);
     }
 }
 
 void
-selection_start(struct terminal *term, int col, int row,
+selection_start(struct terminal *term, struct coord const start,
                 enum selection_kind kind,
                 bool spaces_only)
 {
@@ -750,7 +750,7 @@ selection_start(struct terminal *term, int col, int row,
     switch (kind) {
     case SELECTION_CHAR_WISE:
     case SELECTION_BLOCK:
-        term->selection.coords.start = (struct coord){col, term->grid->view + row};
+        term->selection.coords.start = (struct coord){start.col, term->grid->view + start.row};
         term->selection.coords.end = (struct coord){-1, -1};
 
         term->selection.pivot.start = term->selection.coords.start;
@@ -758,8 +758,8 @@ selection_start(struct terminal *term, int col, int row,
         break;
 
     case SELECTION_WORD_WISE: {
-        struct coord start = {col, term->grid->view + row};
-        struct coord end = {col, term->grid->view + row};
+        struct coord start = {start.col, term->grid->view + start.row};
+        struct coord end = {start.col, term->grid->view + start.row};
         selection_find_word_boundary_left(term, &start, spaces_only);
         selection_find_word_boundary_right(term, &end, spaces_only, true);
 
@@ -777,12 +777,12 @@ selection_start(struct terminal *term, int col, int row,
          * view-local.
          */
 
-        selection_update(term, end.col, end.row - term->grid->view);
+        selection_update(term, (struct coord){end.col, end.row - term->grid->view});
         break;
     }
 
     case SELECTION_LINE_WISE: 
-       selection_start_linewise(term, (struct coord){.row = row, .col = col});
+       selection_start_linewise(term, start);
        break;
 
     case SELECTION_NONE:
@@ -1133,7 +1133,7 @@ set_pivot_point_for_block_and_char_wise(struct terminal *term,
 }
 
 void
-selection_update(struct terminal *term, int col, int row)
+selection_update(struct terminal *term, struct coord const updated_end)
 {
     if (term->selection.coords.start.row < 0)
         return;
@@ -1141,10 +1141,10 @@ selection_update(struct terminal *term, int col, int row)
     if (!term->selection.ongoing)
         return;
 
-    xassert(term->grid->view + row != -1);
+    xassert(term->grid->view + updated_end.row != -1);
 
     struct coord new_start = term->selection.coords.start;
-    struct coord new_end = {col, term->grid->view + row};
+    struct coord new_end = {updated_end.col, term->grid->view + updated_end.row};
 
     LOG_DBG("selection updated: start = %d,%d, end = %d,%d -> %d, %d",
             term->selection.coords.start.row, term->selection.coords.start.col,
@@ -1211,13 +1211,13 @@ selection_update(struct terminal *term, int col, int row)
     case SELECTION_WORD_WISE:
         switch (term->selection.direction) {
         case SELECTION_LEFT:
-            new_end = (struct coord){col, term->grid->view + row};
+            new_end = (struct coord){updated_end.col, term->grid->view + updated_end.row};
             selection_find_word_boundary_left(
                 term, &new_end, term->selection.spaces_only);
             break;
 
         case SELECTION_RIGHT:
-            new_end = (struct coord){col, term->grid->view + row};
+            new_end = (struct coord){updated_end.col, term->grid->view + updated_end.row};
             selection_find_word_boundary_right(
                 term, &new_end, term->selection.spaces_only, true);
             break;
@@ -1230,14 +1230,14 @@ selection_update(struct terminal *term, int col, int row)
     case SELECTION_LINE_WISE:
         switch (term->selection.direction) {
         case SELECTION_LEFT: {
-            struct coord end = {0, row};
+            struct coord end = {0, updated_end.row};
             selection_find_line_boundary_left(term, &end);
             new_end = (struct coord){end.col, term->grid->view + end.row};
             break;
         }
 
         case SELECTION_RIGHT: {
-            struct coord end = {col, row};
+            struct coord end = updated_end;
             selection_find_line_boundary_right(term, &end);
             new_end = (struct coord){end.col, term->grid->view + end.row};
             break;
@@ -1505,7 +1505,7 @@ selection_extend_block(struct terminal *term, int col, int row)
 
 void
 selection_extend(struct seat *seat, struct terminal *term,
-                 int col, int row, enum selection_kind new_kind)
+                 struct coord point, enum selection_kind new_kind)
 {
     if (term->selection.coords.start.row < 0 || term->selection.coords.end.row < 0) {
         /* No existing selection */
@@ -1517,10 +1517,10 @@ selection_extend(struct seat *seat, struct terminal *term,
 
     term->selection.ongoing = true;
 
-    row += term->grid->view;
+    point.row += term->grid->view;
 
-    if ((row == term->selection.coords.start.row && col == term->selection.coords.start.col) ||
-        (row == term->selection.coords.end.row && col == term->selection.coords.end.col))
+    if ((point.row == term->selection.coords.start.row && point.col == term->selection.coords.start.col) ||
+        (point.row == term->selection.coords.end.row && point.col == term->selection.coords.end.col))
     {
         /* Extension point *is* one of the current end points */
         return;
@@ -1534,11 +1534,11 @@ selection_extend(struct seat *seat, struct terminal *term,
     case SELECTION_CHAR_WISE:
     case SELECTION_WORD_WISE:
     case SELECTION_LINE_WISE:
-        selection_extend_normal(term, col, row, new_kind);
+        selection_extend_normal(term, point.col, point.row, new_kind);
         break;
 
     case SELECTION_BLOCK:
-        selection_extend_block(term, col, row);
+        selection_extend_block(term, point.col, point.row);
         break;
     }
 }
@@ -1700,12 +1700,12 @@ fdm_scroll_timer(struct fdm *fdm, int fd, int events, void *data)
 
     case SELECTION_SCROLL_UP:
         cmd_scrollback_up(term, expiration_count);
-        selection_update(term, term->selection.auto_scroll.col, 0);
+        selection_update(term, (struct coord){.col = term->selection.auto_scroll.col, .row = 0});
         break;
 
     case SELECTION_SCROLL_DOWN:
         cmd_scrollback_down(term, expiration_count);
-        selection_update(term, term->selection.auto_scroll.col, term->rows - 1);
+        selection_update(term, (struct coord){.col = term->selection.auto_scroll.col, .row = term->rows - 1});
         break;
     }
 

@@ -513,35 +513,35 @@ execute_binding(struct seat *seat, struct terminal *term,
 
     case BIND_ACTION_SELECT_BEGIN:
         selection_start(
-            term, seat->mouse.col, seat->mouse.row, SELECTION_CHAR_WISE, false);
+            term, (struct coord){.row = seat->mouse.row, .col = seat->mouse.col}, SELECTION_CHAR_WISE, false);
         return true;
 
     case BIND_ACTION_SELECT_BEGIN_BLOCK:
         selection_start(
-            term, seat->mouse.col, seat->mouse.row, SELECTION_BLOCK, false);
+            term, (struct coord){.row = seat->mouse.row, .col = seat->mouse.col}, SELECTION_BLOCK, false);
         return true;
 
     case BIND_ACTION_SELECT_EXTEND:
         selection_extend(
-            seat, term, seat->mouse.col, seat->mouse.row, term->selection.kind);
+            seat, term, (struct coord){.row = seat->mouse.row, .col = seat->mouse.col}, term->selection.kind);
         return true;
 
     case BIND_ACTION_SELECT_EXTEND_CHAR_WISE:
         if (term->selection.kind != SELECTION_BLOCK) {
             selection_extend(
-                seat, term, seat->mouse.col, seat->mouse.row, SELECTION_CHAR_WISE);
+                seat, term, (struct coord){.row = seat->mouse.row, .col = seat->mouse.col}, SELECTION_CHAR_WISE);
             return true;
         }
         return false;
 
     case BIND_ACTION_SELECT_WORD:
         selection_start(
-            term, seat->mouse.col, seat->mouse.row, SELECTION_WORD_WISE, false);
+            term, (struct coord){.row = seat->mouse.row, .col = seat->mouse.col}, SELECTION_WORD_WISE, false);
         return true;
 
     case BIND_ACTION_SELECT_WORD_WS:
         selection_start(
-            term, seat->mouse.col, seat->mouse.row, SELECTION_WORD_WISE, true);
+            term, (struct coord){.row = seat->mouse.row, .col = seat->mouse.col}, SELECTION_WORD_WISE, true);
         return true;
 
     case BIND_ACTION_SELECT_QUOTE:
@@ -551,7 +551,7 @@ execute_binding(struct seat *seat, struct terminal *term,
 
     case BIND_ACTION_SELECT_ROW:
         selection_start(
-            term, seat->mouse.col, seat->mouse.row, SELECTION_LINE_WISE, false);
+            term, (struct coord){.row = seat->mouse.row, .col = seat->mouse.col}, SELECTION_LINE_WISE, false);
         return true;
 
     case BIND_ACTION_COUNT:
@@ -2820,7 +2820,7 @@ wl_pointer_motion(void *data, struct wl_pointer *wl_pointer,
                   seat->mouse.y >= term->margins.top &&
                   seat->mouse.y < term->height - term->margins.bottom)))
             {
-                selection_update(term, seat->mouse.col, seat->mouse.row);
+                selection_update(term, (struct coord){.row = seat->mouse.row, .col = seat->mouse.col});
             }
         }
 

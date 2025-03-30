@@ -42,11 +42,12 @@ static enum search_direction invert_direction(enum search_direction direction) {
   return direction == SEARCH_FORWARD ? SEARCH_BACKWARD : SEARCH_FORWARD;
 }
 
-static struct coord offset_to_view_relative(struct terminal *const term,
-                                            struct coord coord) {
-  coord.row += term->grid->offset;
-  coord.row -= term->grid->view;
-  return coord;
+static struct coord cursor_to_view_relative(struct terminal *const term,
+                                            struct coord cursor) {
+  cursor.row += term->grid->offset;
+  cursor.row -= term->grid->view;
+  return cursor;
+}
 }
 
 static struct coord view_to_offset_relative(struct terminal *const term,
@@ -86,7 +87,7 @@ static struct coord delta_cursor_to_abs_coord(struct terminal *const term,
 
 static void damage_cursor_cell(struct terminal *const term) {
   struct coord const cursor =
-      offset_to_view_relative(term, term->vimode.cursor);
+      cursor_to_view_relative(term, term->vimode.cursor);
   term_damage_cell_in_view(term, cursor.row, cursor.col);
   render_refresh(term);
 }
@@ -131,30 +132,31 @@ static void center_view_on_cursor(struct terminal *const term) {
   }
 }
 
-static void update_selection(struct seat *const seat,
-                             struct terminal *const term) {
+static void update_selection(struct terminal *const term) {
   enum vi_mode const mode = term->vimode.mode;
   if (is_mode_visual(mode)) {
-    struct coord const cursor = term->grid->cursor.point;
-    printf("UPDATING SELECTION [row=%d; col=%d]\n", cursor.row, cursor.col);
-    selection_update(term, cursor.col, cursor.row);
+    struct coord const cursor =
+        cursor_to_view_relative(term, term->vimode.cursor);
+    selection_update(term, cursor);
+    printf("UPDATING SELECTION [row=%d; col=%d; selection.start=(%d,%d); "
+           "selection.end=(%d,%d)]\n",
+           cursor.row, cursor.col, term->selection.coords.start.row,
+           term->selection.coords.start.col, term->selection.coords.end.row,
+           term->selection.coords.end.col);
   }
 }
 
 static void damage_highlights(struct terminal *const term) {
   struct highlight_location const *location = term->vimode.highlights;
   int const offset = term->grid->offset;
-  printf("DAMAGING HIGHLIGHT CELLS: ");
   while (location != NULL) {
     struct coord const start = location->range.start;
     struct coord const end = location->range.end;
     for (int col = start.col; col <= end.col; col += 1) {
-      printf("(%d, %d) ", start.row, col);
       term_damage_cell(term, start.row - offset, col);
     }
     location = location->next;
   }
-  printf("\n");
   render_refresh(term);
 }
 
@@ -225,15 +227,10 @@ static void update_highlights(struct terminal *const term) {
   clear_highlights(term);
   calculate_highlight_regions(term);
   struct highlight_location const *location = term->vimode.highlights;
-  printf("NEW HIGHLIGHT REGIONS: ");
   while (location != NULL) {
     struct highlight_location const *next = location->next;
-    printf("[(%d, %d) - (%d, %d)] ", location->range.start.row,
-           location->range.start.col, location->range.end.row,
-           location->range.end.col);
     location = next;
   }
-  printf("\n");
   damage_highlights(term);
 }
 
@@ -407,6 +404,7 @@ void vimode_cancel(struct terminal *term) {
 
   cancel_search(term, false);
   clear_highlights(term);
+  selection_cancel(term);
 
   term->is_vimming = false;
 
@@ -416,7 +414,6 @@ void vimode_cancel(struct terminal *term) {
     term_ime_enable(term);
   }
 
-  selection_cancel(term);
   struct grid *const grid = term->grid;
   grid->view = grid->offset;
   term_damage_view(term);
@@ -810,7 +807,7 @@ void vimode_view_down(struct terminal *const term, int const delta) {
 static void move_cursor_delta(struct terminal *const term,
                               struct coord const delta) {
   damage_cursor_cell(term);
-  struct coord cursor = offset_to_view_relative(term, term->vimode.cursor);
+  struct coord cursor = cursor_to_view_relative(term, term->vimode.cursor);
   cursor.row += delta.row;
   cursor.col += delta.col;
 
@@ -872,72 +869,73 @@ static void execute_vimode_binding(struct seat *seat, struct terminal *term,
   if (term->grid != &term->normal) {
     return;
   }
-
+  printf("PRE-ACTION DATA [offset=%d; view=%d]\n", term->grid->offset,
+         term->grid->view);
   switch (action) {
   case BIND_ACTION_VIMODE_NONE:
     break;
 
   case BIND_ACTION_VIMODE_UP:
     move_cursor_vertical(term, -1);
-    update_selection(seat, term);
+    update_selection(term);
     update_highlights(term);
     break;
 
   case BIND_ACTION_VIMODE_DOWN:
     move_cursor_vertical(term, 1);
-    update_selection(seat, term);
+    update_selection(term);
     update_highlights(term);
     break;
 
   case BIND_ACTION_VIMODE_LEFT:
     move_cursor_horizontal(term, -1);
-    update_selection(seat, term);
+    update_selection(term);
     break;
 
   case BIND_ACTION_VIMODE_RIGHT:
     move_cursor_horizontal(term, 1);
-    update_selection(seat, term);
+    update_selection(term);
     break;
 
   case BIND_ACTION_VIMODE_UP_PAGE:
     cmd_scrollback_up(term, term->rows);
     clip_cursor_to_view(term);
-    update_selection(seat, term);
+    update_selection(term);
     update_highlights(term);
     break;
 
   case BIND_ACTION_VIMODE_DOWN_PAGE:
     cmd_scrollback_down(term, term->rows);
     clip_cursor_to_view(term);
-    update_selection(seat, term);
+    update_selection(term);
     update_highlights(term);
     break;
 
   case BIND_ACTION_VIMODE_UP_HALF_PAGE:
     cmd_scrollback_up(term, max(term->rows / 2, 1));
     clip_cursor_to_view(term);
-    update_selection(seat, term);
+    update_selection(term);
     update_highlights(term);
     break;
 
   case BIND_ACTION_VIMODE_DOWN_HALF_PAGE:
     cmd_scrollback_down(term, max(term->rows / 2, 1));
     clip_cursor_to_view(term);
-    update_selection(seat, term);
+    update_selection(term);
     update_highlights(term);
     break;
 
   case BIND_ACTION_VIMODE_UP_LINE:
     cmd_scrollback_up(term, 1);
     clip_cursor_to_view(term);
-    update_selection(seat, term);
+    update_selection(term);
     update_highlights(term);
     break;
 
   case BIND_ACTION_VIMODE_DOWN_LINE:
     cmd_scrollback_down(term, 1);
     clip_cursor_to_view(term);
-    update_selection(seat, term);
+    update_selection(term);
     update_highlights(term);
     break;
 
@@ -947,7 +945,7 @@ static void execute_vimode_binding(struct seat *seat, struct terminal *term,
     int const view_row = view_to_scrollback_relative(term);
     term->vimode.cursor.row = cursor_from_scrollback_relative(term, view_row);
     damage_cursor_cell(term);
-    update_selection(seat, term);
+    update_selection(term);
     update_highlights(term);
     break;
   }
@@ -957,7 +955,7 @@ static void execute_vimode_binding(struct seat *seat, struct terminal *term,
     damage_cursor_cell(term);
     term->vimode.cursor.row = term->rows - 1;
     damage_cursor_cell(term);
-    update_selection(seat, term);
+    update_selection(term);
     update_highlights(term);
     break;
 
@@ -1003,8 +1001,8 @@ static void execute_vimode_binding(struct seat *seat, struct terminal *term,
              grid_row_abs_to_sb(term->grid, term->rows, match.start.row),
              cursor_to_scrollback_relative(term, term->vimode.cursor.row),
              match.start.row, match.start.col);
-      // TODO (kociap): update selection.
       move_cursor_delta(term, delta);
+      update_selection(term);
     }
     update_highlights(term);
     break;
@@ -1030,19 +1028,20 @@ static void execute_vimode_binding(struct seat *seat, struct terminal *term,
       } else {
         selection_cancel(term);
         struct coord const start = term->vimode.selection.start;
-        selection_start(term, start.col, start.row, selection, false);
-        struct coord const cursor = term->grid->cursor.point;
-        selection_update(term, cursor.col, cursor.row);
+        selection_start(term, start, selection, false);
+        struct coord const cursor =
+            cursor_to_view_relative(term, term->vimode.cursor);
+        selection_update(term, cursor);
         term->vimode.mode = mode;
       }
     } else if (term->vimode.mode == VI_MODE_NORMAL) {
-      struct coord const cursor = term->grid->cursor.point;
-      selection_start(term, cursor.col, cursor.row, selection, false);
-      selection_update(term, cursor.col, cursor.row);
+      struct coord const cursor =
+          cursor_to_view_relative(term, term->vimode.cursor);
+      selection_start(term, cursor, selection, false);
+      // selection_update(term, cursor.col, cursor.row);
       term->vimode.selection.start = cursor;
       term->vimode.mode = mode;
     }
-    // render_refresh(term);
     break;
   }
 
@@ -1050,8 +1049,8 @@ static void execute_vimode_binding(struct seat *seat, struct terminal *term,
     // TODO (kociap): Should yank executed in non-visual mode copy the
     // current line?
     if (is_mode_visual(term->vimode.mode)) {
+      // Copy, clear the selection and exit the visual mode.
       selection_finalize(seat, term, serial);
-      // finalize only copies, but we also want to clear the selection
       selection_cancel(term);
       term->vimode.mode = VI_MODE_NORMAL;
     }
@@ -1113,9 +1112,9 @@ static void execute_vimode_search_binding(struct seat *seat,
              grid_row_abs_to_sb(term->grid, term->rows, search->match.row),
              cursor_to_scrollback_relative(term, term->vimode.cursor.row),
              search->match.row, search->match.col);
-      // TODO (kociap): update selection.
       move_cursor_delta(term, delta);
       center_view_on_cursor(term);
+      update_selection(term);
     }
     confirm_search(term);
     break;
@@ -1265,12 +1264,12 @@ void vimode_input(struct seat *seat, struct terminal *term,
         term->vimode.search.match_len = term->vimode.search.len;
         struct coord const delta =
             delta_cursor_to_abs_coord(term, term->vimode.search.match);
-        // TODO (kociap): update selection.
         move_cursor_delta(term, delta);
         center_view_on_cursor(term);
       } else {
         restore_pre_search_state(term);
       }
+      update_selection(term);
       update_highlights(term);
     }
   }
