@@ -3246,6 +3246,8 @@ wl_pointer_button(void *data, struct wl_pointer *wl_pointer,
         break;
 
     case TERM_SURF_GRID: {
+         // TODO (kociap): unsure whether mouse should cancel vimode
+         // or work in tandem.
         vimode_cancel(term);
         urls_reset(term);
 

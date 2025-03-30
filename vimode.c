@@ -48,10 +48,9 @@ static struct coord cursor_to_view_relative(struct terminal *const term,
   cursor.row -= term->grid->view;
   return cursor;
 }
-}
 
-static struct coord view_to_offset_relative(struct terminal *const term,
-                                            struct coord coord) {
+static struct coord cursor_from_view_relative(struct terminal *const term,
+                                              struct coord coord) {
   coord.row += term->grid->view;
   coord.row -= term->grid->offset;
   return coord;
@@ -319,7 +318,6 @@ static void start_search(struct terminal *term,
 }
 
 static void restore_pre_search_state(struct terminal *const term) {
-  // TODO (kociap): update selection.
   damage_cursor_cell(term);
   term->vimode.cursor = term->vimode.search.original_cursor;
   damage_cursor_cell(term);
@@ -828,7 +826,7 @@ static void move_cursor_delta(struct terminal *const term,
     cursor.col = term->cols - 1;
   }
 
-  term->vimode.cursor = view_to_offset_relative(term, cursor);
+  term->vimode.cursor = cursor_from_view_relative(term, cursor);
   printf("CURSOR MOVED (%d, %d) [delta=(%d, %d)]\n", term->vimode.cursor.row,
          term->vimode.cursor.col, delta.row, delta.col);
   damage_cursor_cell(term);
