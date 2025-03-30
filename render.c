@@ -599,10 +599,6 @@ draw_strikeout(const struct terminal *term, pixman_image_t *pix,
             cols * term->cell_width, thickness});
 }
 
-/*
- * TODO (kociap): The cell parameter is not used? We could make this
- * function more generic to be reusable in the search box.
- */
 static void
 cursor_colors_for_cell(const struct terminal *term, const struct cell *cell,
                        const pixman_color_t *fg, const pixman_color_t *bg,
@@ -3023,11 +3019,10 @@ render_scrollback_position(struct terminal *term)
 
     case SCROLLBACK_INDICATOR_POSITION_RELATIVE: {
         int lines = term->rows - 2;  /* Avoid using first and last rows */
-        // TODO (kociap): whatever this does
-        // if (term->vimode.searching) {
-        //     /* Make sure we don't collide with the scrollback search box */
-        //     lines--;
-        // }
+        if (term->vimode.searching) {
+            /* Make sure we don't collide with the scrollback search box */
+            lines--;
+        }
 
         lines = max(lines, 0);
 
@@ -3658,6 +3653,11 @@ render_search_box_cursor(
 static void
 render_search_box(struct terminal *term)
 {
+    // TODO (kociap): when the search string is overlong for a row,
+    // break it into multiple rows instead of hiding the overflow.
+    // TODO (kociap): the search box should be rendered as a row below
+    // the scrollback contents. Currently it overlaps the last line.
+
     xassert(term->window->search.sub != NULL);
 
     /*
@@ -3671,6 +3671,8 @@ render_search_box(struct terminal *term)
      * rendering etc.
      */
 
+    char32_t const* const prestring = term->vimode.search.direction == SEARCH_FORWARD ? U"/" : U"?";
+    size_t const prestring_len = c32len(prestring);
 #if defined(FOOT_IME_ENABLED) && FOOT_IME_ENABLED
     /* TODO: do we want to/need to handle multi-seat? */
     struct seat *ime_seat = NULL;
@@ -3711,7 +3713,6 @@ render_search_box(struct terminal *term)
     widths[text_len] = 0;
 
     const size_t total_cells = c32swidth(text, text_len);
-    const size_t wanted_visible_cells = max(20, total_cells);
 
     const float scale = term->scale;
     xassert(scale >= 1.);
@@ -3720,10 +3721,7 @@ render_search_box(struct terminal *term)
     const size_t height = 
         roundf(scale * ceilf(min(term->height, term->cell_height) / scale));
 
-    const size_t visible_width = 
-        min(term->width, wanted_visible_cells * term->cell_width);
-
-    const size_t visible_cells = (visible_width) / term->cell_width;
+    const size_t visible_cells = term->cols - prestring_len;
     size_t glyph_offset = term->render.search_glyph_offset;
 
     struct buffer_chain *chain = term->render.chains.search;
@@ -3751,7 +3749,7 @@ render_search_box(struct terminal *term)
            : term->colors.bg)
         : (custom_colors
            ? term->conf->colors_dark.search_box.no_match.bg
-           : term->colors.bg),
+           : term->colors.table[1]),
         gamma_correct);
 
     pixman_image_fill_rectangles(
@@ -3768,13 +3766,17 @@ render_search_box(struct terminal *term)
         ? (is_match
            ? term->conf->colors_dark.search_box.match.fg
            : term->conf->colors_dark.search_box.no_match.fg)
-        : term->colors.table[244],
+        : (is_match
+            ? term->colors.table[245]
+            : term->colors.table[0]),
         gamma_correct);
 
-    /* Move offset we start rendering at, to ensure the cursor is visible */
-    for (size_t i = 0, cell_idx = 0; i <= term->vimode.search.cursor; cell_idx += widths[i], i++) {
-        if (i != term->vimode.search.cursor)
-            continue;
+    {
+        /* Move offset we start rendering at, to ensure the cursor is visible */
+        size_t cell_idx = 0;
+        for (size_t i = 0; i < term->vimode.search.cursor; i++) {
+            cell_idx += widths[i];
+        }
 
 #if (FOOT_IME_ENABLED) && FOOT_IME_ENABLED
         if (ime_seat != NULL && ime_seat->ime.preedit.cells != NULL) {
@@ -3811,8 +3813,6 @@ render_search_box(struct terminal *term)
             term->render.search_glyph_offset = glyph_offset =
                 total_cells - min(total_cells, visible_cells);
         }
-
-        break;
     }
 
     /* Ensure offset is at a character boundary */
@@ -3821,6 +3821,39 @@ render_search_box(struct terminal *term)
             term->render.search_glyph_offset = glyph_offset = cell_idx;
             break;
         }
+    }
+
+    /* 
+     * Render the prestring. The cursor may never enter the prestring.
+     */
+    for(size_t i = 0; i < prestring_len; i += 1) {
+        int const width = max(0, c32width(prestring[i]));
+        const struct fcft_glyph *glyph = fcft_rasterize_char_utf32(
+            font, prestring[i], term->font_subpixel);
+
+        xassert(glyph != NULL);
+
+        if (unlikely(glyph->is_color_glyph)) {
+            pixman_image_composite32(
+                PIXMAN_OP_OVER, glyph->pix, NULL, buf->pix[0], 0, 0, 0, 0,
+                x + x_ofs + glyph->x, y + term->font_baseline - glyph->y,
+                glyph->width, glyph->height);
+        } else {
+            int combining_ofs = width == 0
+                ? (glyph->x < 0
+                   ? width * term->cell_width
+                   : (width - 1) * term->cell_width)
+                : 0;  /* Not a zero-width character - no additional offset */
+            pixman_image_t *src = pixman_image_create_solid_fill(&fg);
+            pixman_image_composite32(
+                PIXMAN_OP_OVER, src, glyph->pix, buf->pix[0], 0, 0, 0, 0,
+                x + x_ofs + combining_ofs + glyph->x,
+                y + term->font_baseline - glyph->y,
+            glyph->width, glyph->height);
+            pixman_image_unref(src);
+        }
+
+        x += width * term->cell_width;
     }
 
     /*
@@ -3951,15 +3984,19 @@ render_search_box(struct terminal *term)
     }
 
 #if defined(FOOT_IME_ENABLED) && FOOT_IME_ENABLED
-        if (ime_seat != NULL && ime_seat->ime.preedit.cells != NULL)
-            /* Already rendered */;
-        else
+    bool const preedit_cursor_rendered = 
+        ime_seat != NULL && ime_seat->ime.preedit.cells != NULL;
+#else
+    bool const preedit_cursor_rendered = false;
 #endif
-        if (term->vimode.search.cursor >= term->vimode.search.len) {
-            render_search_box_cursor(term, buf->pix[0], fg, x, y);
-            term_ime_set_cursor_rect(
-                term, WINDOW_X(x), WINDOW_Y(y), 1, term->cell_height);
-        }
+
+    if (!preedit_cursor_rendered && 
+        term->vimode.search.cursor >= term->vimode.search.len) 
+    {
+        render_search_box_cursor(term, buf->pix[0], fg, x, y);
+        term_ime_set_cursor_rect(
+            term, WINDOW_X(x), WINDOW_Y(y), 1, term->cell_height);
+    }
 
     quirk_weston_subsurface_desync_on(term->window->search.sub);
 
