@@ -752,6 +752,9 @@ test_section_colors_dark(void)
     test_two_colors(&ctx, &parse_section_colors_dark, "search-box-match", false,
                     &conf.colors_dark.search_box.match.fg,
                     &conf.colors_dark.search_box.match.bg);
+    test_two_colors(&ctx, &parse_section_colors_dark, "highlights", false,
+                    &conf.colors_dark.highlights.fg,
+                    &conf.colors_dark.highlights.bg);
 
     test_two_colors(&ctx, &parse_section_colors_dark, "cursor", false,
                     &conf.colors_dark.cursor.text,

@@ -727,8 +727,6 @@ render_cell(struct terminal *term, pixman_image_t *pix,
     const int y = term->margins.top + row_no * height;
 
     const bool is_selected = cell->attrs.selected;
-    const bool is_highlighted = 
-        is_cell_highlighted(term, (struct coord){.row = row_no, .col = col});
 
     uint32_t _fg = 0;
     uint32_t _bg = 0;
@@ -808,10 +806,16 @@ render_cell(struct terminal *term, pixman_image_t *pix,
             alpha = 0xffff;
         }
     } else {
+        const bool is_highlighted = 
+            is_cell_highlighted(term, (struct coord){.row = row_no, .col = col});
         if(is_highlighted) {
-            // TODO (kociap): colors for the highlight.
-            _fg = term->colors.table[0];
-            _bg = term->colors.table[1];
+            if(term->conf->colors.use_custom.highlights) {
+                _fg = term->conf->colors.highlights.fg;
+                _bg = term->conf->colors.highlights.bg;
+            } else {
+                _fg = term->colors.table[0];
+                _bg = term->colors.table[1];
+            }
         }
 
         if (unlikely(cell->attrs.reverse)) {
@@ -3735,20 +3739,30 @@ render_search_box(struct terminal *term)
 #define WINDOW_Y(y) (term->height - height + y)
 
     const bool is_match = term->vimode.search.match_len == text_len;
-    const bool custom_colors = is_match
-        ? term->conf->colors_dark.use_custom.search_box_match
-        : term->conf->colors_dark.use_custom.search_box_no_match;
+    const bool custom_color_match = 
+        term->conf->colors_dark.use_custom.search_box_match;
+    const bool custom_color_no_match = 
+        term->conf->colors_dark.use_custom.search_box_no_match;
 
     /* Background - yellow on empty/match, red on mismatch (default) */
     const bool gamma_correct = wayl_do_linear_blending(term->wl, term->conf);
     const pixman_color_t bg = color_hex_to_pixman(
         is_match
-        ? (custom_colors
+        ? (custom_color_match
            ? term->conf->colors_dark.search_box.match.bg
-           : term->colors.bg)
-        : (custom_colors
+           : term->colors.table[0]) // Black
+        : (custom_color_no_match
            ? term->conf->colors_dark.search_box.no_match.bg
-           : term->colors.table[1]),
+           : term->colors.table[1]), // Red
+        gamma_correct);
+    const pixman_color_t fg = color_hex_to_pixman(
+        is_match
+        ? (custom_color_match
+           ? term->conf->colors_dark.search_box.match.fg
+           : term->colors.table[245]) // Grey
+        : (custom_color_no_match
+           ? term->conf->colors_dark.search_box.no_match.fg
+           : term->colors.table[0]), // Black
         gamma_correct);
 
     pixman_image_fill_rectangles(
@@ -3759,16 +3773,6 @@ render_search_box(struct terminal *term)
     const int x_ofs = term->font_x_ofs;
     int x = 0;
     int y = 0;
-
-    pixman_color_t fg = color_hex_to_pixman(
-        custom_colors
-        ? (is_match
-           ? term->conf->colors_dark.search_box.match.fg
-           : term->conf->colors_dark.search_box.no_match.fg)
-        : (is_match
-            ? term->colors.table[245]
-            : term->colors.table[0]),
-        gamma_correct);
 
     {
         /* Move offset we start rendering at, to ensure the cursor is visible */

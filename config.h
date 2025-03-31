@@ -185,12 +185,18 @@ struct color_theme {
     } search_box;
 
     struct {
+        uint32_t fg;
+        uint32_t bg;
+    } highlights;
+
+    struct {
         bool cursor:1;
         bool jump_label:1;
         bool scrollback_indicator:1;
         bool url:1;
         bool search_box_no_match:1;
         bool search_box_match:1;
+        bool highlights:1;
         uint8_t dim;
     } use_custom;
 };

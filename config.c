@@ -1527,6 +1527,20 @@ parse_color_theme(struct context *ctx, struct color_theme *theme)
         return true;
     }
 
+    else if (streq(key, "highlights")) {
+        if (!value_to_two_colors(
+                ctx,
+                &theme->highlights.fg,
+                &theme->highlights.bg,
+                false))
+        {
+            return false;
+        }
+
+        theme->use_custom.highlights = true;
+        return true;
+    }
+
     else if (streq(key, "urls")) {
         if (!value_to_color(ctx, &theme->url, false))
             return false;
