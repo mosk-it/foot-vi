@@ -4346,19 +4346,36 @@ delayed_reflow_of_normal_grid(struct terminal *term)
 
     xassert(term->interactive_resizing.new_rows > 0);
 
-    struct coord *const tracking_points[] = {
-        &term->selection.coords.start,
-        &term->selection.coords.end,
-    };
+    int tracking_points_length = 0;
+    struct coord * tracking_points[3];
+
+    if(term->selection.coords.end.row >= 0) {
+        tracking_points[tracking_points_length] =  &term->selection.coords.start;
+        tracking_points[tracking_points_length + 1] = &term->selection.coords.end;
+        tracking_points_length += 2;
+    }
+
+    struct coord vimode_cursor = term->vimode.cursor;
+    vimode_cursor.row = grid_row_absolute(term->grid, term->vimode.cursor.row);
+    if(term->vimode.active) {
+        tracking_points[tracking_points_length] = &vimode_cursor;
+        tracking_points_length += 1;
+    }
 
     /* Reflow the original (since before the resize was started) grid,
      * to the *current* dimensions */
     grid_resize_and_reflow(
-        term->interactive_resizing.grid, term,
-        term->interactive_resizing.new_rows, term->normal.num_cols,
-        term->interactive_resizing.old_screen_rows, term->rows,
-        term->selection.coords.end.row >= 0 ? ALEN(tracking_points) : 0,
-        tracking_points);
+            term->interactive_resizing.grid, term,
+            term->interactive_resizing.new_rows, term->normal.num_cols,
+            term->interactive_resizing.old_screen_rows, term->rows,
+            tracking_points_length, tracking_points);
+
+    // Change vimode cursor to offset relative coordinates.
+    vimode_cursor.row -= term->grid->offset;
+    if(vimode_cursor.row >= term->rows) {
+        vimode_cursor.row -= term->grid->num_rows;
+    }
+    term->vimode.cursor = vimode_cursor;
 
     /* Replace the current, truncated, "normal" grid with the
      * correctly reflowed one */
@@ -4853,15 +4870,32 @@ render_resize(struct terminal *term, int width, int height, uint8_t opts)
             term_ptmx_resume(term);
         }
 
-        struct coord *const tracking_points[] = {
-            &term->selection.coords.start,
-            &term->selection.coords.end,
-        };
+        int tracking_points_length = 0;
+        struct coord * tracking_points[3];
+
+        if(term->selection.coords.end.row >= 0) {
+            tracking_points[tracking_points_length] =  &term->selection.coords.start;
+            tracking_points[tracking_points_length + 1] = &term->selection.coords.end;
+            tracking_points_length += 2;
+        }
+
+        struct coord vimode_cursor = term->vimode.cursor;
+        vimode_cursor.row = grid_row_absolute(term->grid, term->vimode.cursor.row);
+        if(term->vimode.active) {
+            tracking_points[tracking_points_length] = &vimode_cursor;
+            tracking_points_length += 1;
+        }
 
         grid_resize_and_reflow(
             &term->normal, term, new_normal_grid_rows, new_cols, old_normal_rows, new_rows,
-            term->selection.coords.end.row >= 0 ? ALEN(tracking_points) : 0,
-            tracking_points);
+            tracking_points_length, tracking_points);
+
+        // Change vimode cursor to offset relative coordinates.
+        vimode_cursor.row -= term->grid->offset;
+        if(vimode_cursor.row >= new_rows) {
+            vimode_cursor.row -= term->grid->num_rows;
+        }
+        term->vimode.cursor = vimode_cursor;
     }
 
     grid_resize_without_reflow(

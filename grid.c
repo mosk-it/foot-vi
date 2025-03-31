@@ -859,7 +859,6 @@ grid_resize_and_reflow(
     saved_cursor.row += grid->offset;
     saved_cursor.row &= old_rows - 1;
 
-    // TODO (kociap): add the vimode cursor and selection start.
     size_t tp_count =
         tracking_points_count +
         1 +                       /* cursor */
