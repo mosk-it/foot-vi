@@ -436,7 +436,7 @@ static ssize_t matches_cell(const struct terminal *term,
   if (composed == NULL && base == 0 && buf[search_ofs] == U' ')
     return 1;
 
-  if (c32ncasecmp(&base, &buf[search_ofs], 1) != 0)
+  if (c32ncasecmp(&base, buf, 1) != 0)
     return -1;
 
   if (composed != NULL) {
@@ -738,59 +738,6 @@ void search_add_chars(struct terminal *term, const char *src, size_t count) {
   add_wchars(term, c32s, chars);
 }
 
-// static size_t distance_next_word(const struct terminal *term) {
-//   size_t cursor = term->vimode.search.cursor;
-//
-//   /* First eat non-whitespace. This is the word we're skipping past */
-//   while (cursor < term->vimode.search.len) {
-//     if (isc32space(term->vimode.search.buf[cursor++]))
-//       break;
-//   }
-//
-//   xassert(cursor == term->vimode.search.len ||
-//           isc32space(term->vimode.search.buf[cursor - 1]));
-//
-//   /* Now skip past whitespace, so that we end up at the beginning of
-//    * the next word */
-//   while (cursor < term->vimode.search.len) {
-//     if (!isc32space(term->vimode.search.buf[cursor++]))
-//       break;
-//   }
-//
-//   xassert(cursor == term->vimode.search.len ||
-//           !isc32space(term->vimode.search.buf[cursor - 1]));
-//
-//   if (cursor < term->vimode.search.len &&
-//   !isc32space(term->vimode.search.buf[cursor]))
-//     cursor--;
-//
-//   return cursor - term->vimode.search.cursor;
-// }
-
-// static size_t distance_prev_word(const struct terminal *term) {
-//   int cursor = term->vimode.search.cursor;
-//
-//   /* First, eat whitespace prefix */
-//   while (cursor > 0) {
-//     if (!isc32space(term->vimode.search.buf[--cursor]))
-//       break;
-//   }
-//
-//   xassert(cursor == 0 || !isc32space(term->vimode.search.buf[cursor]));
-//
-//   /* Now eat non-whitespace. This is the word we're skipping past */
-//   while (cursor > 0) {
-//     if (isc32space(term->vimode.search.buf[--cursor]))
-//       break;
-//   }
-//
-//   xassert(cursor == 0 || isc32space(term->vimode.search.buf[cursor]));
-//   if (cursor > 0 && isc32space(term->vimode.search.buf[cursor]))
-//     cursor++;
-//
-//   return term->vimode.search.cursor - cursor;
-// }
-
 void vimode_view_down(struct terminal *const term, int const delta) {
   if (!term->vimode.active) {
     return;
@@ -858,6 +805,254 @@ static void move_cursor_vertical(struct terminal *const term, int const count) {
 static void move_cursor_horizontal(struct terminal *const term,
                                    int const count) {
   move_cursor_delta(term, (struct coord){.row = 0, .col = count});
+}
+
+enum c32_class {
+  CLASS_BLANK,
+  CLASS_PUNCTUATION,
+  CLASS_WORD,
+};
+
+enum c32_class get_class(char32_t const c) {
+  if (c == '\0') {
+    return CLASS_BLANK;
+  }
+
+  // We consider an underscore to be a word character instead of
+  // punctuation.
+  if (c == '_') {
+    return CLASS_WORD;
+  }
+
+  bool const whitespace = isc32space(c);
+  if (whitespace) {
+    return CLASS_BLANK;
+  }
+
+  // TODO (kociap): unsure whether this handles all possible
+  // punctuation, a subset of it or just the latin1 characters.
+  bool const punctuation = isc32punct(c);
+  if (punctuation) {
+    return CLASS_PUNCTUATION;
+  }
+
+  // Most other characters may be considered "word" characters.
+  return CLASS_WORD;
+}
+
+char32_t cursor_char(struct terminal *const term) {
+  struct row *const row = grid_row(term->grid, term->vimode.cursor.row);
+  return row->cells[term->vimode.cursor.col].wc;
+}
+
+enum c32_class cursor_class(struct terminal *const term) {
+  char32_t const c = cursor_char(term);
+  return get_class(c);
+}
+
+int row_length(struct terminal *const term, int const row_index) {
+  struct row *const row = grid_row(term->grid, row_index);
+  int length = 0;
+  while (length < term->grid->num_cols) {
+    if (row->cells[length].wc == '\0') {
+      break;
+    }
+    length += 1;
+  }
+  return length;
+}
+
+// increment_cursor
+//
+// Move the cursor to the next character, moving to the next row as
+// necessary.
+//
+// Returns:
+// false when at the end of the scrollback.
+// true otherwise
+//
+bool increment_cursor(struct terminal *const term) {
+  char32_t const c = cursor_char(term);
+  // Within a row, move to the next column.
+  if (c != '\0') {
+    term->vimode.cursor.col += 1;
+    struct row const *const row = grid_row(term->grid, term->vimode.cursor.row);
+    // If the row does not contain a linebreak, we want to move to the
+    // next row immediately.
+    if (row->linebreak || term->vimode.cursor.col < term->cols) {
+      return true;
+    }
+  }
+
+  // Not in the last row.
+  if (term->vimode.cursor.row != term->rows - 1) {
+    term->vimode.cursor.row += 1;
+    term->vimode.cursor.col = 0;
+    return true;
+  }
+
+  return false;
+}
+
+// decrement_cursor
+//
+// Move the cursor to the previous character, moving to the previous
+// row as necessary.
+//
+// Returns:
+// false when at the start of the scrollback.
+// true otherwise
+//
+bool decrement_cursor(struct terminal *const term) {
+  // Within a row, move to the previous column.
+  if (term->vimode.cursor.col > 0) {
+    term->vimode.cursor.col -= 1;
+    return true;
+  }
+
+  // TODO (kociap): this seems like a terrible way (performance-wise)
+  // to figure out the current scrollback position. Could maybe store
+  // it in the grid instead of recalculating it repeatedly?
+  int const sb_start =
+      grid_sb_start_ignore_uninitialized(term->grid, term->rows);
+  int const sb_row = grid_row_abs_to_sb_precalc_sb_start(
+      term->grid, sb_start,
+      grid_row_absolute(term->grid, term->vimode.cursor.row));
+  // Not in the first row.
+  if (sb_row > 0) {
+    term->vimode.cursor.row -= 1;
+    term->vimode.cursor.col = row_length(term, term->vimode.cursor.row) - 1;
+    return true;
+  }
+  return false;
+}
+
+bool skip_chars_forward(struct terminal *const term,
+                        enum c32_class const class) {
+  while (cursor_class(term) == class) {
+    if (increment_cursor(term) == false) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool skip_chars_backward(struct terminal *const term,
+                         enum c32_class const class) {
+  while (cursor_class(term) == class) {
+    if (decrement_cursor(term) == false) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// MOTIONS
+
+void motion_begin_word(struct terminal *const term) {
+  if (decrement_cursor(term) == false) {
+    return;
+  }
+
+  // Skip whitespace. If we encounter an empty row, stop.
+  while (cursor_class(term) == CLASS_BLANK) {
+    bool const row_empty = row_length(term, term->vimode.cursor.row) == 0;
+    if (row_empty && term->vimode.cursor.col == 0) {
+      return;
+    }
+
+    if (decrement_cursor(term) == false) {
+      return;
+    }
+  }
+
+  // Go to the start of the next word.
+  enum c32_class const current_class = cursor_class(term);
+  if (skip_chars_backward(term, current_class) == false) {
+    return;
+  }
+
+  // We overshot. Move forward one character.
+  increment_cursor(term);
+}
+
+void motion_end_word(struct terminal *const term) {
+  if (increment_cursor(term) == false) {
+    return;
+  }
+
+  // Skip whitespace. If we encounter an empty row, stop.
+  while (cursor_class(term) == CLASS_BLANK) {
+    bool const row_empty = row_length(term, term->vimode.cursor.row) == 0;
+    if (row_empty && term->vimode.cursor.col == 0) {
+      return;
+    }
+
+    if (increment_cursor(term) == false) {
+      return;
+    }
+  }
+
+  // Go to the end of the next word.
+  enum c32_class current_class = cursor_class(term);
+  if (skip_chars_forward(term, current_class) == false) {
+    return;
+  }
+  // We overshot. Go back one character.
+  decrement_cursor(term);
+}
+
+void motion_fwd_begin_word(struct terminal *const term) {
+  enum c32_class const starting_class = cursor_class(term);
+  if (increment_cursor(term) == false) {
+    return;
+  }
+
+  // Move to the end of this word.
+  if (starting_class != CLASS_BLANK) {
+    if (skip_chars_forward(term, starting_class) == false) {
+
+      return;
+    }
+  }
+
+  // Skip whitespace. If we encounter an empty row, stop.
+  while (cursor_class(term) == CLASS_BLANK) {
+    bool const row_empty = row_length(term, term->vimode.cursor.row) == 0;
+    if (row_empty && term->vimode.cursor.col == 0) {
+      return;
+    }
+
+    if (increment_cursor(term) == false) {
+      return;
+    }
+  }
+}
+
+void motion_back_end_word(struct terminal *const term) {
+  enum c32_class const starting_class = cursor_class(term);
+  if (decrement_cursor(term) == false) {
+    return;
+  }
+
+  // Move to before the start of this word.
+  if (starting_class != CLASS_BLANK) {
+    if (skip_chars_backward(term, starting_class) == false) {
+      return;
+    }
+  }
+
+  // Skip whitespace. If we encounter an empty row, stop.
+  while (cursor_class(term) == CLASS_BLANK) {
+    bool const row_empty = row_length(term, term->vimode.cursor.row) == 0;
+    if (row_empty && term->vimode.cursor.col == 0) {
+      return;
+    }
+
+    if (decrement_cursor(term) == false) {
+      return;
+    }
+  }
 }
 
 static void execute_vimode_binding(struct seat *seat, struct terminal *term,
@@ -946,8 +1141,7 @@ static void execute_vimode_binding(struct seat *seat, struct terminal *term,
     damage_cursor_cell(term);
     update_selection(term);
     update_highlights(term);
-    break;
-  }
+  } break;
 
   case BIND_ACTION_VIMODE_LAST_LINE:
     cmd_scrollback_down(term, term->grid->num_rows);
@@ -956,6 +1150,68 @@ static void execute_vimode_binding(struct seat *seat, struct terminal *term,
     damage_cursor_cell(term);
     update_selection(term);
     update_highlights(term);
+    break;
+
+  case BIND_ACTION_VIMODE_LINE_BEGIN:
+    damage_cursor_cell(term);
+    term->vimode.cursor.col = 0;
+    damage_cursor_cell(term);
+    break;
+
+  case BIND_ACTION_VIMODE_LINE_END: {
+    damage_cursor_cell(term);
+    struct row const *const row = grid_row(term->grid, term->vimode.cursor.row);
+    int col = term->cols - 1;
+    while (col > 0) {
+      if (row->cells[col].wc != '\0') {
+        break;
+      }
+      col -= 1;
+    }
+    term->vimode.cursor.col = col;
+    damage_cursor_cell(term);
+  } break;
+
+  case BIND_ACTION_VIMODE_TEXT_BEGIN: {
+    damage_cursor_cell(term);
+    struct row const *const row = grid_row(term->grid, term->vimode.cursor.row);
+    int col = 0;
+    while (col < term->cols - 1) {
+      if (isc32graph(row->cells[col].wc)) {
+        break;
+      }
+      col += 1;
+    }
+    term->vimode.cursor.col = col;
+    damage_cursor_cell(term);
+  } break;
+
+  case BIND_ACTION_VIMODE_WORD_BEGIN:
+    damage_cursor_cell(term);
+    motion_begin_word(term);
+    damage_cursor_cell(term);
+    update_selection(term);
+    break;
+
+  case BIND_ACTION_VIMODE_WORD_END:
+    damage_cursor_cell(term);
+    motion_end_word(term);
+    damage_cursor_cell(term);
+    update_selection(term);
+    break;
+
+  case BIND_ACTION_VIMODE_NEXT_WORD_BEGIN:
+    damage_cursor_cell(term);
+    motion_fwd_begin_word(term);
+    damage_cursor_cell(term);
+    update_selection(term);
+    break;
+
+  case BIND_ACTION_VIMODE_PREV_WORD_END:
+    damage_cursor_cell(term);
+    motion_back_end_word(term);
+    damage_cursor_cell(term);
+    update_selection(term);
     break;
 
   case BIND_ACTION_VIMODE_CANCEL: {
@@ -969,8 +1225,7 @@ static void execute_vimode_binding(struct seat *seat, struct terminal *term,
     } else {
       vimode_cancel(term);
     }
-    break;
-  }
+  } break;
 
   case BIND_ACTION_VIMODE_START_SEARCH_FORWARD:
     start_search(term, SEARCH_FORWARD);
@@ -1004,8 +1259,7 @@ static void execute_vimode_binding(struct seat *seat, struct terminal *term,
       update_selection(term);
     }
     update_highlights(term);
-    break;
-  }
+  } break;
 
   case BIND_ACTION_VIMODE_ENTER_VISUAL:
   case BIND_ACTION_VIMODE_ENTER_VLINE:
@@ -1041,8 +1295,7 @@ static void execute_vimode_binding(struct seat *seat, struct terminal *term,
       term->vimode.selection.start = cursor;
       term->vimode.mode = mode;
     }
-    break;
-  }
+  } break;
 
   case BIND_ACTION_VIMODE_YANK:
     // TODO (kociap): Should yank executed in non-visual mode copy the

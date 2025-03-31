@@ -87,6 +87,10 @@ static inline bool hasc32upper(const char32_t *s) {
     return false;
 }
 
+static inline bool isc32punct(char32_t c32) {
+    return iswpunct((wint_t)c32);
+}
+
 static inline int c32width(char32_t c) {
 #if defined(FOOT_GRAPHEME_CLUSTERING)
     return utf8proc_charwidth((utf8proc_int32_t)c);
