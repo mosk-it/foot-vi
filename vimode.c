@@ -877,6 +877,11 @@ bool increment_cursor(struct terminal *const term) {
   if (term->vimode.cursor.row != term->rows - 1) {
     term->vimode.cursor.row += 1;
     term->vimode.cursor.col = 0;
+    // If the cursor moved outside the view, follow it.
+    struct coord cursor = cursor_to_view_relative(term, term->vimode.cursor);
+    if (cursor.row >= term->rows) {
+      cmd_scrollback_down(term, 1);
+    }
     return true;
   }
 
@@ -911,6 +916,11 @@ bool decrement_cursor(struct terminal *const term) {
   if (sb_row > 0) {
     term->vimode.cursor.row -= 1;
     term->vimode.cursor.col = row_length(term, term->vimode.cursor.row) - 1;
+    // If the cursor moved outside the view, follow it.
+    struct coord cursor = cursor_to_view_relative(term, term->vimode.cursor);
+    if (cursor.row < 0) {
+      cmd_scrollback_up(term, 1);
+    }
     return true;
   }
   return false;
