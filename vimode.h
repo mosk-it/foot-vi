@@ -24,10 +24,10 @@ void vimode_search_add_chars(struct terminal *term, const char *text,
                              size_t len);
 
 struct search_match_iterator {
-  struct terminal *term;
-  struct coord start;
-  char32_t const *buf;
-  size_t len;
+    struct terminal *term;
+    struct coord start;
+    char32_t const *buf;
+    size_t len;
 };
 
 struct search_match_iterator search_matches_new_iter(struct terminal *term,
