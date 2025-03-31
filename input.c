@@ -1648,13 +1648,11 @@ key_press_release(struct seat *seat, struct terminal *term, uint32_t serial,
 
     if (pressed) {
         if (term->unicode_mode.active) {
-            printf("UNICODE INPUT\n");
             unicode_mode_input(seat, term, sym);
             return;
         }
 
         else if (term->vimode.active) {
-            printf("VIMODE INPUT\n");
             if (should_repeat)
                 start_repeater(seat, key);
 

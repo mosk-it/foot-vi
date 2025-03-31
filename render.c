@@ -2151,9 +2151,8 @@ render_worker_thread(void *_ctx)
 
             switch (row_no) {
             default: {
-                struct row *row = grid_row_in_view(term->grid, row_no);
-                int cursor_col = cursor.row == row_no ? cursor.col : -1;
-
+                struct row *const row = grid_row_in_view(term->grid, row_no);
+                int const cursor_col = cursor.row == row_no ? cursor.col : -1;
                 render_row(term, buf->pix[my_id], &buf->dirty[my_id],
                            row, row_no, cursor_col);
                 break;
@@ -2218,7 +2217,7 @@ render_worker_thread(void *_ctx)
             }
             }
         }
-    };
+    }
 
     return -1;
 }

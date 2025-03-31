@@ -33,7 +33,6 @@ unicode_mode_updated(struct terminal *term)
 {
     if (term == NULL)
         return;
-    printf("UNICODE UPDATE\n");
     if (term->vimode.active)
         // TODO (kociap): refresh
         // render_refresh_search(term);
@@ -46,7 +45,6 @@ void
 unicode_mode_input(struct seat *seat, struct terminal *term,
                    xkb_keysym_t sym)
 {
-    printf("UNICODE INPUT\n");
     if (sym == XKB_KEY_Return ||
         sym == XKB_KEY_space ||
         sym == XKB_KEY_KP_Enter ||

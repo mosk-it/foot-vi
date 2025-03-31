@@ -1871,6 +1871,7 @@ term_destroy(struct terminal *term)
 
     key_binding_unref(term->wl->key_binding_manager, term->conf);
 
+    vimode_cancel(term);
     urls_reset(term);
 
     free(term->vt.osc.data);
@@ -1896,10 +1897,6 @@ term_destroy(struct terminal *term)
         &term->custom_glyphs.legacy, GLYPH_LEGACY_COUNT);
     free_custom_glyphs(
         &term->custom_glyphs.octants, GLYPH_OCTANTS_COUNT);
-
-    // TODO (kociap): Free the vimode search buffers.
-    // free(term->search.buf);
-    // free(term->search.last.buf);
 
     if (term->render.workers.threads != NULL) {
         for (size_t i = 0; i < term->render.workers.count; i++) {
@@ -3094,7 +3091,6 @@ selection_on_bottom_region(const struct terminal *term,
 void
 term_scroll_partial(struct terminal *term, struct scroll_region region, int rows)
 {
-    printf("SCROLL PARTIAL [rows=%d, region.start=%d, region.end=%d]\n", rows, region.start, region.end);
     LOG_DBG("scroll: rows=%d, region.start=%d, region.end=%d",
             rows, region.start, region.end);
 
@@ -4019,7 +4015,6 @@ term_fill(struct terminal *term, int r, int c, uint8_t data, size_t count,
 void
 term_print(struct terminal *term, char32_t wc, int width, bool insert_mode_disable)
 {
-    printf("TERM PRINT\n");
     xassert(width > 0);
 
     struct grid *grid = term->grid;

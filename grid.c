@@ -819,7 +819,6 @@ grid_resize_and_reflow(
     size_t tracking_points_count,
     struct coord *const _tracking_points[static tracking_points_count])
 {
-    printf("GRID REFLOW\n");
 #if defined(TIME_REFLOW) && TIME_REFLOW
     struct timespec start;
     clock_gettime(CLOCK_MONOTONIC, &start);
