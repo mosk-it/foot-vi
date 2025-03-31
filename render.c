@@ -691,7 +691,7 @@ static bool is_cell_highlighted(struct terminal* const term,
     struct highlight_location const* location = term->vimode.highlights;
     int const row_abs = grid_row_absolute_in_view(term->grid, cell.row);
     while(location != NULL) {
-        // End the search early if we are past the possible locations.
+        // End the search early if we are past the our row.
         if(location->range.start.row > row_abs) {
             break;
         }
