@@ -4,7 +4,7 @@
 #define LOG_ENABLE_DBG 0
 #include "log.h"
 #include "render.h"
-#include "search.h"
+#include "vimode.h"
 
 void
 unicode_mode_activate(struct terminal *term)
@@ -33,10 +33,8 @@ unicode_mode_updated(struct terminal *term)
 {
     if (term == NULL)
         return;
-    if (term->vimode.active)
-        // TODO (kociap): refresh
-        // render_refresh_search(term);
-        (void)0;
+    if (term->vimode.searching)
+        render_refresh_vimode_search_box(term);
     else
         render_refresh(term);
 }
@@ -58,10 +56,8 @@ unicode_mode_input(struct seat *seat, struct terminal *term,
                 term->unicode_mode.character, (int)chars, utf8);
 
         if (chars != (size_t)-1) {
-            if (term->vimode.active)
-                // TODO (kociap): input
-                // search_add_chars(term, utf8, chars);
-                (void)0;
+            if (term->vimode.searching)
+                vimode_search_add_chars(term, utf8, chars);
             else
                 term_to_slave(term, utf8, chars);
         }

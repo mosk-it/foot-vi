@@ -11,9 +11,9 @@
 #include "log.h"
 #include "char32.h"
 #include "render.h"
-#include "search.h"
 #include "terminal.h"
 #include "util.h"
+#include "vimode.h"
 #include "wayland.h"
 #include "xmalloc.h"
 
@@ -177,10 +177,8 @@ done(void *data, struct zwp_text_input_v3 *zwp_text_input_v3,
         ime_reset_preedit(seat);
 
         if (term != NULL) {
-            if (term->vimode.active)
-                // TODO (kociap): refresh
-                // render_refresh_search(term);
-                (void)0;
+            if (term->vimode.searching)
+                render_refresh_vimode_search_box(term);
             else
                 render_refresh(term);
         }
@@ -200,11 +198,9 @@ done(void *data, struct zwp_text_input_v3 *zwp_text_input_v3,
         size_t len = strlen(text);
 
         if (term != NULL) {
-            if (term->vimode.active) {
-                // TODO (kociap): input and refresh
-                // search_add_chars(term, text, len);
-                // render_refresh_search(term);
-                (void)0;
+            if (term->vimode.searching) {
+                vimode_search_add_chars(term, text, len);
+                render_refresh_vimode_search_box(term);
             } else
                 term_to_slave(term, text, len);
         }
@@ -371,10 +367,8 @@ done(void *data, struct zwp_text_input_v3 *zwp_text_input_v3,
     ime_reset_pending_preedit(seat);
 
     if (term != NULL) {
-        if (term->vimode.active)
-            // TODO (kociap): refresh
-            // render_refresh_search(term);
-            (void)0;
+        if (term->vimode.searching)
+            render_refresh_vimode_search_box(term);
         else
             render_refresh(term);
     }
@@ -480,9 +474,8 @@ ime_update_cursor_rect(struct seat *seat)
         goto update;
 
     /* Set in render_search_box() */
-    // TODO (kociap): in vimode this most likely is not necessary.
-    // if (term->vimode.searching)
-    //     goto update;
+    if (term->vimode.searching)
+        goto update;
 
     int x, y, width, height;
     int col = term->grid->cursor.point.col;

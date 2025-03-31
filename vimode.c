@@ -19,6 +19,7 @@
 // TODO (kociap): consider adding scrolloff.
 // TODO (kociap): consider not cancelling selection on scroll.
 // TODO (kociap): jump list?
+// TODO (kociap): WORD motions.
 
 static bool is_mode_visual(enum vi_mode const mode) {
   return mode == VI_MODE_VISUAL || mode == VI_MODE_VLINE ||
@@ -724,7 +725,8 @@ static void add_wchars(struct terminal *term, char32_t *src, size_t count) {
   term->vimode.search.buf[term->vimode.search.len] = U'\0';
 }
 
-void search_add_chars(struct terminal *term, const char *src, size_t count) {
+void vimode_search_add_chars(struct terminal *term, const char *src,
+                             size_t count) {
   size_t chars = mbsntoc32(NULL, src, count, 0);
   if (chars == (size_t)-1) {
     LOG_ERRNO("failed to convert %.*s to Unicode", (int)count, src);
@@ -1513,7 +1515,7 @@ void vimode_input(struct seat *seat, struct terminal *term,
       }
 
       if (count > 0) {
-        search_add_chars(term, (const char *)buf, count);
+        vimode_search_add_chars(term, (const char *)buf, count);
         render_refresh_vimode_search_box(term);
         search_string_updated = true;
       }
