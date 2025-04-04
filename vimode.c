@@ -12,6 +12,7 @@
 #include "log.h"
 #include "render.h"
 #include "selection.h"
+#include "unicode-mode.h"
 #include "util.h"
 #include "vimode.h"
 #include "xmalloc.h"
@@ -1504,9 +1505,9 @@ static void execute_vimode_search_binding(struct seat *seat,
                           term);
         break;
 
-        // case BIND_ACTION_VIMODE_SEARCH_UNICODE_INPUT:
-        //     unicode_mode_activate(term);
-        //     break;
+    case BIND_ACTION_VIMODE_SEARCH_UNICODE_INPUT:
+        unicode_mode_activate(term);
+        break;
 
     case BIND_ACTION_VIMODE_COUNT:
         BUG("Invalid action type");

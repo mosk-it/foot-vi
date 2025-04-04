@@ -203,6 +203,7 @@ static const char *const vimode_search_binding_action_map[] = {
     [BIND_ACTION_VIMODE_SEARCH_DELETE_PREV_CHAR] = "vimode-search-delete-prev",
     [BIND_ACTION_VIMODE_SEARCH_LEFT] = "vimode-search-left",
     [BIND_ACTION_VIMODE_SEARCH_RIGHT] = "vimode-search-right",
+    [BIND_ACTION_VIMODE_SEARCH_UNICODE_INPUT] = "vimode-search-unicode-input",
     [BIND_ACTION_VIMODE_SEARCH_CLIPBOARD_PASTE] = "vimode-search-clipboard-paste",
     [BIND_ACTION_VIMODE_SEARCH_PRIMARY_PASTE] = "vimode-search-primary-paste",
 };
