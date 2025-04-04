@@ -1136,9 +1136,6 @@ static void execute_vimode_binding(struct seat *seat, struct terminal *term,
 {
     const enum bind_action_vimode action = binding->action;
 
-    if (term->grid != &term->normal) {
-        return;
-    }
     LOG_DBG("PRE-ACTION DATA [offset=%d; view=%d]", term->grid->offset,
             term->grid->view);
     switch (action) {
@@ -1408,10 +1405,6 @@ static void execute_vimode_search_binding(struct seat *seat,
     const enum bind_action_vimode action = binding->action;
     struct vimode_search *const search = &term->vimode.search;
     *search_string_changed = false;
-
-    if (term->grid != &term->normal) {
-        return;
-    }
 
     switch (action) {
     case BIND_ACTION_VIMODE_SEARCH_NONE:
