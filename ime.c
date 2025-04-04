@@ -198,10 +198,9 @@ done(void *data, struct zwp_text_input_v3 *zwp_text_input_v3,
         size_t len = strlen(text);
 
         if (term != NULL) {
-            if (term->vimode.searching) {
+            if (term->vimode.searching)
                 vimode_search_add_chars(term, text, len);
-                render_refresh_vimode_search_box(term);
-            } else
+            else
                 term_to_slave(term, text, len);
         }
         ime_reset_pending_commit(seat);

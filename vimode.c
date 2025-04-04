@@ -142,6 +142,56 @@ static void center_view_on_cursor(struct terminal *const term)
     }
 }
 
+// move_cursor_delta
+//
+// Moves the cursor within the scrollback by the vector delta. If the
+// cursor goes outside the view bounds, the view is scrolled.
+//
+// Parameters:
+// delta - the number of rows/columns to move by. Negative values move
+//         up/left, positive down/right.
+//
+static void move_cursor_delta(struct terminal *const term,
+                              struct coord const delta)
+{
+    damage_cursor_cell(term);
+    struct coord cursor = cursor_to_view_relative(term, term->vimode.cursor);
+    cursor.row += delta.row;
+    cursor.col += delta.col;
+
+    if (cursor.row < 0) {
+        int const overflow = -cursor.row;
+        cmd_scrollback_up(term, overflow);
+        cursor.row = 0;
+    } else if (cursor.row >= term->rows) {
+        int const overflow = cursor.row - term->rows + 1;
+        cmd_scrollback_down(term, overflow);
+        cursor.row = term->rows - 1;
+    }
+
+    if (cursor.col < 0) {
+        cursor.col = 0;
+    } else if (cursor.col >= term->cols) {
+        cursor.col = term->cols - 1;
+    }
+
+    term->vimode.cursor = cursor_from_view_relative(term, cursor);
+    LOG_DBG("CURSOR MOVED (%d, %d) [delta=(%d, %d)]", term->vimode.cursor.row,
+            term->vimode.cursor.col, delta.row, delta.col);
+    damage_cursor_cell(term);
+    render_refresh(term);
+}
+
+static void move_cursor_vertical(struct terminal *const term, int const count)
+{
+    move_cursor_delta(term, (struct coord){.row = count, .col = 0});
+}
+
+static void move_cursor_horizontal(struct terminal *const term, int const count)
+{
+    move_cursor_delta(term, (struct coord){.row = 0, .col = count});
+}
+
 static void update_selection(struct terminal *const term)
 {
     enum vi_mode const mode = term->vimode.mode;
@@ -527,7 +577,7 @@ static bool find_next(struct terminal *term, char32_t const *const buf,
              * rest of the search buffer matches.
              */
 
-            LOG_DBG("search: initial match at row=%d, col=%d", match_start_row,
+            LOG_DBG("search: initial match at (%d, %d)", match_start_row,
                     match_start_col);
 
             int match_end_row = match_start_row;
@@ -733,12 +783,47 @@ struct range search_matches_next(struct search_match_iterator *iter)
     return match;
 }
 
-static void add_wchars(struct terminal *term, char32_t *src, size_t count)
+static void on_search_string_updated(struct terminal *const term)
 {
+    LOG_DBG("SEARCH UPDATED [%ls]", (const wchar_t *)term->vimode.search.buf);
+    struct range match;
+    // TODO (kociap): when several consecutive searches succeed, the
+    // cursor is not moved to its original position in-between
+    // searches.
+    bool const matched = find_next_from_cursor(
+        term, term->vimode.search.buf, term->vimode.search.len,
+        term->vimode.search.direction, &match);
+    if (matched > 0) {
+        term->vimode.search.match = match.start;
+        term->vimode.search.match_len = term->vimode.search.len;
+        struct coord const delta =
+            delta_cursor_in_abs_coord(term, term->vimode.search.match);
+        move_cursor_delta(term, delta);
+        center_view_on_cursor(term);
+        update_selection(term);
+    } else {
+        restore_pre_search_state(term);
+    }
+    update_highlights(term);
+    render_refresh_vimode_search_box(term);
+}
+
+static void add_chars_to_search(struct terminal *term, char const *buffer,
+                                size_t const length)
+{
+    size_t count = mbsntoc32(NULL, buffer, length, 0);
+    if (count == (size_t)-1) {
+        LOG_ERRNO("failed to convert %.*s to Unicode", (int)length, buffer);
+        return;
+    }
+
+    char32_t c32s[count + 1];
+    mbsntoc32(c32s, buffer, length, count);
+
     /* Strip non-printable characters */
     for (size_t i = 0, j = 0, orig_count = count; i < orig_count; i++) {
-        if (isc32print(src[i]))
-            src[j++] = src[i];
+        if (isc32print(c32s[i]))
+            c32s[j++] = c32s[i];
         else
             count--;
     }
@@ -753,7 +838,7 @@ static void add_wchars(struct terminal *term, char32_t *src, size_t count)
             (term->vimode.search.len - term->vimode.search.cursor) *
                 sizeof(char32_t));
 
-    memcpy(&term->vimode.search.buf[term->vimode.search.cursor], src,
+    memcpy(&term->vimode.search.buf[term->vimode.search.cursor], c32s,
            count * sizeof(char32_t));
 
     term->vimode.search.len += count;
@@ -764,15 +849,8 @@ static void add_wchars(struct terminal *term, char32_t *src, size_t count)
 void vimode_search_add_chars(struct terminal *term, const char *src,
                              size_t count)
 {
-    size_t chars = mbsntoc32(NULL, src, count, 0);
-    if (chars == (size_t)-1) {
-        LOG_ERRNO("failed to convert %.*s to Unicode", (int)count, src);
-        return;
-    }
-
-    char32_t c32s[chars + 1];
-    mbsntoc32(c32s, src, count, chars);
-    add_wchars(term, c32s, chars);
+    add_chars_to_search(term, src, count);
+    on_search_string_updated(term);
 }
 
 void vimode_view_down(struct terminal *const term, int const delta)
@@ -786,56 +864,6 @@ void vimode_view_down(struct terminal *const term, int const delta)
     term->vimode.cursor.row -= delta;
     clip_cursor_to_view(term);
     update_highlights(term);
-}
-
-// move_cursor_delta
-//
-// Moves the cursor within the scrollback by the vector delta. If the
-// cursor goes outside the view bounds, the view is scrolled.
-//
-// Parameters:
-// delta - the number of rows/columns to move by. Negative values move
-//         up/left, positive down/right.
-//
-static void move_cursor_delta(struct terminal *const term,
-                              struct coord const delta)
-{
-    damage_cursor_cell(term);
-    struct coord cursor = cursor_to_view_relative(term, term->vimode.cursor);
-    cursor.row += delta.row;
-    cursor.col += delta.col;
-
-    if (cursor.row < 0) {
-        int const overflow = -cursor.row;
-        cmd_scrollback_up(term, overflow);
-        cursor.row = 0;
-    } else if (cursor.row >= term->rows) {
-        int const overflow = cursor.row - term->rows + 1;
-        cmd_scrollback_down(term, overflow);
-        cursor.row = term->rows - 1;
-    }
-
-    if (cursor.col < 0) {
-        cursor.col = 0;
-    } else if (cursor.col >= term->cols) {
-        cursor.col = term->cols - 1;
-    }
-
-    term->vimode.cursor = cursor_from_view_relative(term, cursor);
-    LOG_DBG("CURSOR MOVED (%d, %d) [delta=(%d, %d)]", term->vimode.cursor.row,
-            term->vimode.cursor.col, delta.row, delta.col);
-    damage_cursor_cell(term);
-    render_refresh(term);
-}
-
-static void move_cursor_vertical(struct terminal *const term, int const count)
-{
-    move_cursor_delta(term, (struct coord){.row = count, .col = 0});
-}
-
-static void move_cursor_horizontal(struct terminal *const term, int const count)
-{
-    move_cursor_delta(term, (struct coord){.row = 0, .col = count});
 }
 
 enum c32_class {
@@ -1396,6 +1424,18 @@ static void execute_vimode_binding(struct seat *seat, struct terminal *term,
     }
 }
 
+static void from_clipboard_cb(char *text, size_t size, void *user)
+{
+    struct terminal *term = user;
+    add_chars_to_search(term, text, size);
+}
+
+static void from_clipboard_done(void *user)
+{
+    struct terminal *term = user;
+    on_search_string_updated(term);
+}
+
 static void execute_vimode_search_binding(struct seat *seat,
                                           struct terminal *const term,
                                           const struct key_binding *binding,
@@ -1438,7 +1478,6 @@ static void execute_vimode_search_binding(struct seat *seat,
             search->cursor -= 1;
             search->len -= 1;
             search->buf[search->len] = U'\0';
-            render_refresh_vimode_search_box(term);
             *search_string_changed = true;
         }
         break;
@@ -1446,34 +1485,28 @@ static void execute_vimode_search_binding(struct seat *seat,
     case BIND_ACTION_VIMODE_SEARCH_LEFT:
         if (search->cursor > 0) {
             search->cursor -= 1;
-            render_refresh_vimode_search_box(term);
         }
         break;
 
     case BIND_ACTION_VIMODE_SEARCH_RIGHT:
         if (search->cursor < search->len) {
             search->cursor += 1;
-            render_refresh_vimode_search_box(term);
         }
         break;
 
-        // case BIND_ACTION_SEARCH_CLIPBOARD_PASTE:
-        //   text_from_clipboard(seat, term, &from_clipboard_cb,
-        //   &from_clipboard_done,
-        //                       term);
-        //   *update_search_result = *redraw = true;
-        //   return true;
-        //
-        // case BIND_ACTION_SEARCH_PRIMARY_PASTE:
-        //   text_from_primary(seat, term, &from_clipboard_cb,
-        //   &from_clipboard_done,
-        //                     term);
-        //   *update_search_result = *redraw = true;
-        //   return true;
-        //
-        // case BIND_ACTION_SEARCH_UNICODE_INPUT:
-        //   unicode_mode_activate(term);
-        //   return true;
+    case BIND_ACTION_VIMODE_SEARCH_CLIPBOARD_PASTE:
+        text_from_clipboard(seat, term, &from_clipboard_cb,
+                            &from_clipboard_done, term);
+        break;
+
+    case BIND_ACTION_VIMODE_SEARCH_PRIMARY_PASTE:
+        text_from_primary(seat, term, &from_clipboard_cb, &from_clipboard_done,
+                          term);
+        break;
+
+        // case BIND_ACTION_VIMODE_SEARCH_UNICODE_INPUT:
+        //     unicode_mode_activate(term);
+        //     break;
 
     case BIND_ACTION_VIMODE_COUNT:
         BUG("Invalid action type");
@@ -1579,34 +1612,13 @@ void vimode_input(struct seat *seat, struct terminal *term,
             }
 
             if (count > 0) {
-                vimode_search_add_chars(term, (const char *)buf, count);
-                render_refresh_vimode_search_box(term);
+                add_chars_to_search(term, (const char *)buf, count);
                 search_string_updated = true;
             }
         }
 
         if (search_string_updated) {
-            LOG_DBG("SEARCH UPDATED [%ls]",
-                    (const wchar_t *)term->vimode.search.buf);
-            struct range match;
-            // TODO (kociap): when several consecutive searches succeed, the
-            // cursor is not moved to its original position in-between
-            // searches.
-            bool const matched = find_next_from_cursor(
-                term, term->vimode.search.buf, term->vimode.search.len,
-                term->vimode.search.direction, &match);
-            if (matched > 0) {
-                term->vimode.search.match = match.start;
-                term->vimode.search.match_len = term->vimode.search.len;
-                struct coord const delta =
-                    delta_cursor_in_abs_coord(term, term->vimode.search.match);
-                move_cursor_delta(term, delta);
-                center_view_on_cursor(term);
-                update_selection(term);
-            } else {
-                restore_pre_search_state(term);
-            }
-            update_highlights(term);
+            on_search_string_updated(term);
         }
     }
 }

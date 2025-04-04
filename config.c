@@ -203,6 +203,8 @@ static const char *const vimode_search_binding_action_map[] = {
     [BIND_ACTION_VIMODE_SEARCH_DELETE_PREV_CHAR] = "vimode-search-delete-prev",
     [BIND_ACTION_VIMODE_SEARCH_LEFT] = "vimode-search-left",
     [BIND_ACTION_VIMODE_SEARCH_RIGHT] = "vimode-search-right",
+    [BIND_ACTION_VIMODE_SEARCH_CLIPBOARD_PASTE] = "vimode-search-clipboard-paste",
+    [BIND_ACTION_VIMODE_SEARCH_PRIMARY_PASTE] = "vimode-search-primary-paste",
 };
 
 static const char *const url_binding_action_map[] = {
@@ -3411,6 +3413,11 @@ add_default_vimode_search_bindings(struct config *conf)
         {BIND_ACTION_VIMODE_SEARCH_LEFT, m("none"), {{XKB_KEY_leftarrow}}},
         {BIND_ACTION_VIMODE_SEARCH_RIGHT, m(XKB_MOD_NAME_CTRL), {{XKB_KEY_l}}},
         {BIND_ACTION_VIMODE_SEARCH_RIGHT, m("none"), {{XKB_KEY_rightarrow}}},
+        {BIND_ACTION_VIMODE_SEARCH_CLIPBOARD_PASTE, m(XKB_MOD_NAME_CTRL), {{XKB_KEY_p}}},
+        {BIND_ACTION_VIMODE_SEARCH_CLIPBOARD_PASTE, m(XKB_MOD_NAME_CTRL), {{XKB_KEY_v}}},
+        {BIND_ACTION_VIMODE_SEARCH_CLIPBOARD_PASTE, m(XKB_MOD_NAME_CTRL "+" XKB_MOD_NAME_SHIFT), {{XKB_KEY_v}}},
+        {BIND_ACTION_VIMODE_SEARCH_CLIPBOARD_PASTE, m("none"), {{XKB_KEY_XF86Paste}}},
+        {BIND_ACTION_VIMODE_SEARCH_PRIMARY_PASTE, m(XKB_MOD_NAME_SHIFT), {{XKB_KEY_Insert}}},
     };
 
     conf->bindings.vimode_search.count = ALEN(bindings);
