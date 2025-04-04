@@ -354,10 +354,10 @@ static void cancel_search(struct terminal *const term,
     }
 
     wayl_win_subsurface_destroy(&term->window->search);
-    clear_highlights(term);
     term->vimode.searching = false;
     struct vimode_search *const search = &term->vimode.search;
     if (restore_original) {
+        clear_highlights(term);
         restore_pre_search_state(term);
     }
 
