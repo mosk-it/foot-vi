@@ -525,8 +525,7 @@ cursor_refresh(struct terminal *term)
         return;
 
     if(term->vimode.active) {
-        struct row *const row = 
-            grid_row_in_view(term->grid, term->vimode.cursor.row);
+        struct row *const row = grid_row(term->grid, term->vimode.cursor.row);
         row->cells[term->vimode.cursor.col].attrs.clean = 0;
         row->dirty = true;
     } else {
