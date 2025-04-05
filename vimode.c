@@ -1437,6 +1437,100 @@ static void from_clipboard_done(void *user)
     on_search_string_updated(term);
 }
 
+// Deletes characters from the search string backward from the cursor
+// position. Deletes at most cursor characters.
+// Returns true when any characters have been deleted.
+//
+static bool
+delete_chars_from_search_backward(struct vimode_search *const search, int count)
+{
+    if (search->cursor > 0) {
+        count = count < search->cursor ? count : search->cursor;
+        memmove(&search->buf[search->cursor - count],
+                &search->buf[search->cursor],
+                (search->len - search->cursor) * sizeof(char32_t));
+        search->cursor -= count;
+        search->len -= count;
+        search->buf[search->len] = U'\0';
+        return true;
+    }
+    return false;
+}
+
+// Deletes characters from the search string forward from the cursor
+// position. Deletes at most length-cursor characters.
+// Returns true when any characters have been deleted.
+//
+static bool delete_chars_from_search_forward(struct vimode_search *const search,
+                                             int count)
+{
+    if (search->cursor < search->len) {
+        count = count < search->len - search->cursor
+                    ? count
+                    : search->len - search->cursor;
+        memmove(&search->buf[search->cursor],
+                &search->buf[search->cursor + count],
+                (search->len - search->cursor - count) * sizeof(char32_t));
+        search->len -= count;
+        search->buf[search->len] = U'\0';
+        return true;
+    }
+    return false;
+}
+
+static int distance_back_word(struct vimode_search *const search)
+{
+    int cursor = search->cursor;
+    if (cursor == 0) {
+        return 0;
+    }
+
+    cursor -= 1;
+
+    // Skip whitespace.
+    while (cursor > 0 && get_class(search->buf[cursor]) == CLASS_BLANK) {
+        cursor -= 1;
+    }
+
+    // Go back to the start of the word.
+    enum c32_class const current_class = get_class(search->buf[cursor]);
+    while (cursor >= 0 && get_class(search->buf[cursor]) == current_class) {
+        cursor -= 1;
+    }
+
+    // We overshot. Move forward one character.
+    cursor += 1;
+
+    return search->cursor - cursor;
+}
+
+static int distance_fwd_word(struct vimode_search *const search)
+{
+    int cursor = search->cursor;
+    if (cursor == search->len) {
+        return 0;
+    }
+
+    enum c32_class const starting_class = get_class(search->buf[cursor]);
+    cursor += 1;
+
+    // Go forward to the end of the word.
+    if (starting_class != CLASS_BLANK) {
+        while (cursor < search->len &&
+               get_class(search->buf[cursor]) == starting_class) {
+            cursor += 1;
+        }
+    }
+
+    // Skip whitespace.
+    while (cursor < search->len &&
+           get_class(search->buf[cursor]) == CLASS_BLANK) {
+        cursor += 1;
+    }
+
+    return cursor - search->cursor;
+}
+
 static void execute_vimode_search_binding(struct seat *seat,
                                           struct terminal *const term,
                                           const struct key_binding *binding,
@@ -1471,27 +1565,82 @@ static void execute_vimode_search_binding(struct seat *seat,
         cancel_search(term, true);
         break;
 
-    case BIND_ACTION_VIMODE_SEARCH_DELETE_PREV_CHAR:
-        if (search->cursor > 0) {
-            memmove(&search->buf[search->cursor - 1],
-                    &search->buf[search->cursor],
-                    (search->len - search->cursor) * sizeof(char32_t));
-            search->cursor -= 1;
-            search->len -= 1;
-            search->buf[search->len] = U'\0';
-            *search_string_changed = true;
-        }
-        break;
+    case BIND_ACTION_VIMODE_SEARCH_DELETE_PREV_CHAR: {
+        bool const deleted = delete_chars_from_search_backward(search, 1);
+        *search_string_changed = deleted;
+    } break;
+
+    case BIND_ACTION_VIMODE_SEARCH_DELETE_NEXT_CHAR: {
+        bool const deleted = delete_chars_from_search_forward(search, 1);
+        *search_string_changed = deleted;
+    } break;
+
+    case BIND_ACTION_VIMODE_SEARCH_DELETE_PREV_WORD: {
+        int const distance = distance_back_word(search);
+        bool const deleted =
+            delete_chars_from_search_backward(search, distance);
+        *search_string_changed = deleted;
+    } break;
+
+    case BIND_ACTION_VIMODE_SEARCH_DELETE_NEXT_WORD: {
+        int const distance = distance_fwd_word(search);
+        bool const deleted = delete_chars_from_search_forward(search, distance);
+        *search_string_changed = deleted;
+    } break;
+
+    case BIND_ACTION_VIMODE_SEARCH_DELETE_TO_START: {
+        bool const deleted =
+            delete_chars_from_search_backward(search, search->len);
+        *search_string_changed = deleted;
+    } break;
+
+    case BIND_ACTION_VIMODE_SEARCH_DELETE_TO_END: {
+        bool const deleted =
+            delete_chars_from_search_forward(search, search->len);
+        *search_string_changed = deleted;
+    } break;
 
     case BIND_ACTION_VIMODE_SEARCH_LEFT:
         if (search->cursor > 0) {
             search->cursor -= 1;
+            render_refresh_vimode_search_box(term);
         }
         break;
 
     case BIND_ACTION_VIMODE_SEARCH_RIGHT:
         if (search->cursor < search->len) {
             search->cursor += 1;
+            render_refresh_vimode_search_box(term);
+        }
+        break;
+
+    case BIND_ACTION_VIMODE_SEARCH_LEFT_WORD:
+        if (search->cursor > 0) {
+            int const distance = distance_back_word(search);
+            search->cursor -= distance;
+            render_refresh_vimode_search_box(term);
+        }
+        break;
+
+    case BIND_ACTION_VIMODE_SEARCH_RIGHT_WORD:
+        if (search->cursor < search->len) {
+            int const distance = distance_fwd_word(search);
+            search->cursor += distance;
+            render_refresh_vimode_search_box(term);
+        }
+        break;
+
+    case BIND_ACTION_VIMODE_SEARCH_LINE_START:
+        if (search->cursor > 0) {
+            search->cursor = 0;
+            render_refresh_vimode_search_box(term);
+        }
+        break;
+
+    case BIND_ACTION_VIMODE_SEARCH_LINE_END:
+        if (search->cursor < search->len) {
+            search->cursor = search->len;
+            render_refresh_vimode_search_box(term);
         }
         break;
 
