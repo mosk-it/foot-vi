@@ -215,7 +215,8 @@ shm_chain_new(
 }
 
 
-void search_selection_cancelled(struct terminal *term) {}
+void vimode_view_down(struct terminal *term, int delta) {}
+void vimode_cancel(struct terminal *term) {}
 
 void get_current_modifiers(const struct seat *seat,
                            xkb_mod_mask_t *effective,
@@ -242,7 +243,8 @@ key_binding_new_for_conf(
         kbd_initialized = true;
         kbd = (struct key_binding_set){
             .key = tll_init(),
-            .search = tll_init(),
+            .vimode = tll_init(),
+            .vimode_search = tll_init(),
             .url = tll_init(),
             .mouse = tll_init(),
             .selection_overrides = 0,
