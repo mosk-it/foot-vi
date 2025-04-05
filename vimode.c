@@ -297,44 +297,6 @@ static void update_highlights(struct terminal *const term)
     damage_highlights(term);
 }
 
-/*
- * Ensures a "new" viewport doesn't contain any unallocated rows.
- *
- * This is done by first checking if the *first* row is NULL. If so,
- * we move the viewport *forward*, until the first row is non-NULL. At
- * this point, the entire viewport should be allocated rows only.
- *
- * If the first row already was non-NULL, we instead check the *last*
- * row, and if it is NULL, we move the viewport *backward* until the
- * last row is non-NULL.
- */
-static int ensure_view_is_allocated(struct terminal *term, int new_view)
-{
-    struct grid *grid = term->grid;
-    int view_end = (new_view + term->rows - 1) & (grid->num_rows - 1);
-
-    if (grid->rows[new_view] == NULL) {
-        while (grid->rows[new_view] == NULL)
-            new_view = (new_view + 1) & (grid->num_rows - 1);
-    }
-
-    else if (grid->rows[view_end] == NULL) {
-        while (grid->rows[view_end] == NULL) {
-            new_view--;
-            if (new_view < 0)
-                new_view += grid->num_rows;
-            view_end = (new_view + term->rows - 1) & (grid->num_rows - 1);
-        }
-    }
-
-#if defined(_DEBUG)
-    for (size_t r = 0; r < term->rows; r++)
-        xassert(grid->rows[(new_view + r) & (grid->num_rows - 1)] != NULL);
-#endif
-
-    return new_view;
-}
-
 static bool search_ensure_size(struct terminal *term, size_t wanted_size)
 {
     struct vimode_search *const search = &term->vimode.search;
@@ -390,9 +352,12 @@ static void restore_pre_search_state(struct terminal *const term)
     damage_cursor_cell(term);
     term->vimode.cursor = term->vimode.search.original_cursor;
     damage_cursor_cell(term);
-    term->grid->view =
-        ensure_view_is_allocated(term, term->vimode.search.original_view);
-    term_damage_view(term);
+    int const view_delta = term->vimode.search.original_view - term->grid->view;
+    if (view_delta > 0) {
+        cmd_scrollback_down(term, view_delta);
+    } else {
+        cmd_scrollback_up(term, -view_delta);
+    }
     render_refresh(term);
     update_selection(term);
 }
@@ -648,6 +613,7 @@ static bool find_next(struct terminal *term, char32_t const *const buf,
 static bool find_next_from_cursor(struct terminal *const term,
                                   char32_t *const buf, size_t const len,
                                   enum search_direction const direction,
+                                  struct coord const cursor,
                                   struct range *const match)
 {
     if (len == 0 || buf == NULL) {
@@ -657,8 +623,8 @@ static bool find_next_from_cursor(struct terminal *const term,
     struct grid *grid = term->grid;
 
     struct coord start = {
-        .row = grid_row_absolute(grid, term->vimode.cursor.row),
-        .col = term->vimode.cursor.col,
+        .row = grid_row_absolute(grid, cursor.row),
+        .col = cursor.col,
     };
 
     // Step 1 character in the direction we are searching so that we do
@@ -788,12 +754,11 @@ static void on_search_string_updated(struct terminal *const term)
 {
     LOG_DBG("SEARCH UPDATED [%ls]", (const wchar_t *)term->vimode.search.buf);
     struct range match;
-    // TODO (kociap): when several consecutive searches succeed, the
-    // cursor is not moved to its original position in-between
-    // searches.
+    // Search from the original position of the cursor.
     bool const matched = find_next_from_cursor(
         term, term->vimode.search.buf, term->vimode.search.len,
-        term->vimode.search.direction, &match);
+        term->vimode.search.direction, term->vimode.search.original_cursor,
+        &match);
     if (matched > 0) {
         term->vimode.search.match = match.start;
         term->vimode.search.match_len = term->vimode.search.len;
@@ -1347,9 +1312,10 @@ static void execute_vimode_binding(struct seat *seat, struct terminal *term,
                 ? term->vimode.confirmed_search.direction
                 : invert_direction(term->vimode.confirmed_search.direction);
         struct range match;
-        bool const matched = find_next_from_cursor(
-            term, term->vimode.confirmed_search.buf,
-            term->vimode.confirmed_search.len, direction, &match);
+        bool const matched =
+            find_next_from_cursor(term, term->vimode.confirmed_search.buf,
+                                  term->vimode.confirmed_search.len, direction,
+                                  term->vimode.cursor, &match);
         // TODO (kociap): feedback for the user when no match?
         if (matched) {
             struct coord const delta =
