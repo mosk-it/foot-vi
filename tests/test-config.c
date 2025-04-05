@@ -1286,13 +1286,13 @@ test_section_vimode_search_bindings(void)
 
     test_invalid_key(&ctx, &parse_section_vimode_search_bindings, "invalid-key");
 
-    for (int action = 0; action < BIND_ACTION_VIMODE_COUNT; action++) {
+    for (int action = 0; action < BIND_ACTION_VIMODE_SEARCH_COUNT; action++) {
         if (vimode_search_binding_action_map[action] == NULL)
             continue;
 
         test_key_binding(
             &ctx, &parse_section_vimode_search_bindings,
-            action, BIND_ACTION_VIMODE_COUNT - 1,
+            action, BIND_ACTION_VIMODE_SEARCH_COUNT - 1,
             vimode_search_binding_action_map, &conf.bindings.vimode_search, KEY_BINDING,
             false, false);
     }
@@ -1321,9 +1321,10 @@ test_section_vimode_search_bindings_collisions(void)
     struct context ctx = {
         .conf = &conf, .section = "vimode-search-bindings", .path = "unittest"};
 
-    test_binding_collisions(
-        &ctx,
-        BIND_ACTION_VIMODE_COUNT - 1, vimode_search_binding_action_map, KEY_BINDING);
+    test_binding_collisions(&ctx,
+                            BIND_ACTION_VIMODE_SEARCH_COUNT - 1,
+                            vimode_search_binding_action_map,
+                            KEY_BINDING);
 
     config_free(&conf);
 }
