@@ -741,7 +741,7 @@ selection_start(struct terminal *term, struct coord const start,
             kind == SELECTION_WORD_WISE ? "word-wise" :
             kind == SELECTION_LINE_WISE ? "line-wise" :
             kind == SELECTION_BLOCK ? "block" : "<unknown>",
-            row, col);
+            start.row, start.col);
 
     term->selection.kind = kind;
     term->selection.ongoing = true;

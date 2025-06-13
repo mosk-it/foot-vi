@@ -634,6 +634,7 @@ struct terminal {
         struct coord cursor;
 
         struct {
+            bool mouse_button_pressed;
             struct coord start;
         } selection;
 

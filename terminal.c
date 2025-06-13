@@ -3098,6 +3098,7 @@ term_scroll_partial(struct terminal *term, struct scroll_region region, int rows
 
     /* Cancel selections that cannot be scrolled */
     if (unlikely(term->selection.coords.end.row >= 0)) {
+        // TODO (kociap): selection cancelled on scroll.
         /*
          * Selection is (partly) inside either the top or bottom
          * scrolling regions, or on (at least one) of the lines

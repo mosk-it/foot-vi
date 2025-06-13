@@ -460,6 +460,32 @@ void vimode_cancel(struct terminal *term)
     render_refresh(term);
 }
 
+void vimode_view_up(struct terminal *term, int const delta)
+{
+    if (!term->vimode.active) {
+        return;
+    }
+
+    damage_cursor_cell(term);
+    term->vimode.cursor.row += delta;
+    clip_cursor_to_view(term);
+    update_selection(term);
+    update_highlights(term);
+}
+
+void vimode_view_down(struct terminal *const term, int const delta)
+{
+    if (!term->vimode.active) {
+        return;
+    }
+
+    damage_cursor_cell(term);
+    term->vimode.cursor.row -= delta;
+    clip_cursor_to_view(term);
+    update_selection(term);
+    update_highlights(term);
+}
+
 static ssize_t matches_cell(const struct terminal *term,
                             const struct cell *cell, char32_t const *const buf,
                             size_t const len, size_t search_ofs)
@@ -817,19 +843,6 @@ void vimode_search_add_chars(struct terminal *term, const char *src,
 {
     add_chars_to_search(term, src, count);
     on_search_string_updated(term);
-}
-
-void vimode_view_down(struct terminal *const term, int const delta)
-{
-    if (!term->vimode.active) {
-        return;
-    }
-
-    LOG_DBG("VIMODE VIEW DOWN [delta=%d]", delta);
-    damage_cursor_cell(term);
-    term->vimode.cursor.row -= delta;
-    clip_cursor_to_view(term);
-    update_highlights(term);
 }
 
 enum c32_class {
@@ -1737,4 +1750,37 @@ void vimode_input(struct seat *seat, struct terminal *term,
             on_search_string_updated(term);
         }
     }
+}
+
+void vimode_mouse_selection_begin(struct terminal *const term,
+                                  struct coord const point,
+                                  enum vi_mode const vmode)
+{
+    if (term->vimode.active == false) {
+        return;
+    }
+
+    if (!is_mode_visual(vmode)) {
+        return;
+    }
+
+    term->vimode.selection.mouse_button_pressed = true;
+    term->vimode.selection.start = point;
+    term->vimode.mode = vmode;
+    damage_cursor_cell(term);
+    term->vimode.cursor = cursor_from_view_relative(term, point);
+    damage_cursor_cell(term);
+}
+
+void vimode_mouse_selection_end(struct terminal *const term)
+{
+    term->vimode.selection.mouse_button_pressed = false;
+}
+
+void vimode_mouse_move(struct terminal *const term, struct coord const point)
+{
+    damage_cursor_cell(term);
+    term->vimode.cursor = cursor_from_view_relative(term, point);
+    damage_cursor_cell(term);
+    update_selection(term);
 }

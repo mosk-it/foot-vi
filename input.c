@@ -511,11 +511,17 @@ execute_binding(struct seat *seat, struct terminal *term,
         term_theme_toggle(term);
         return true;
 
-    case BIND_ACTION_SELECT_BEGIN:
-        selection_start(
-            term, (struct coord){.row = seat->mouse.row, .col = seat->mouse.col}, SELECTION_CHAR_WISE, false);
+    case BIND_ACTION_SELECT_BEGIN: {
+        struct coord const point = {.row = seat->mouse.row, .col = seat->mouse.col};
+        selection_start(term, point, SELECTION_CHAR_WISE, false);
+        // TODO (kociap): Single click causes selection to start
+        // instead of just repositioning the cursor.
+        vimode_mouse_selection_begin(term, point, VI_MODE_VISUAL);
         return true;
+    }
 
+    // TODO (kociap): Add vimode selection to the remaining selection
+    // bindings.
     case BIND_ACTION_SELECT_BEGIN_BLOCK:
         selection_start(
             term, (struct coord){.row = seat->mouse.row, .col = seat->mouse.col}, SELECTION_BLOCK, false);
@@ -2600,6 +2606,8 @@ wl_pointer_leave(void *data, struct wl_pointer *wl_pointer,
             break;
 
         case TERM_SURF_GRID:
+            // TODO (kociap): unsure what this does and when it
+            // triggers.
             selection_finalize(seat, old_moused, seat->pointer.serial);
             break;
 
@@ -2755,7 +2763,7 @@ wl_pointer_motion(void *data, struct wl_pointer *wl_pointer,
         xassert(seat->mouse.row >= 0 && seat->mouse.row < term->rows);
 
         /* Cursor has moved to a different cell since last time */
-        bool cursor_is_on_new_cell
+        const bool cursor_is_on_new_cell
             = old_col != seat->mouse.col || old_row != seat->mouse.row;
 
         if (cursor_is_on_new_cell) {
@@ -2780,47 +2788,49 @@ wl_pointer_motion(void *data, struct wl_pointer *wl_pointer,
         if (auto_scroll_direction == SELECTION_SCROLL_NOT)
             selection_stop_scroll_timer(term);
 
-        /* Update selection */
-        if (!term->vimode.active) {
-            if (auto_scroll_direction != SELECTION_SCROLL_NOT) {
-                /*
-                 * Start 'selection auto-scrolling'
-                 *
-                 * The speed of the scrolling is proportional to the
-                 * distance between the mouse and the grid; the
-                 * further away the mouse is, the faster we scroll.
-                 *
-                 * Note that the speed is measured in 'intervals (in
-                 * ns) between each timed scroll of a single line'.
-                 *
-                 * Thus, the further away the mouse is, the smaller
-                 * interval value we use.
-                 */
+        if (auto_scroll_direction != SELECTION_SCROLL_NOT) {
+            /*
+             * Start 'selection auto-scrolling'
+             *
+             * The speed of the scrolling is proportional to the
+             * distance between the mouse and the grid; the
+             * further away the mouse is, the faster we scroll.
+             *
+             * Note that the speed is measured in 'intervals (in
+             * ns) between each timed scroll of a single line'.
+             *
+             * Thus, the further away the mouse is, the smaller
+             * interval value we use.
+             */
 
-                int distance = auto_scroll_direction == SELECTION_SCROLL_UP
-                    ? term->margins.top - y
-                    : y - (term->height - term->margins.bottom);
+            int distance = auto_scroll_direction == SELECTION_SCROLL_UP
+                ? term->margins.top - y
+                : y - (term->height - term->margins.bottom);
 
-                xassert(distance > 0);
-                int divisor
-                    = distance * term->conf->scrollback.multiplier / term->scale;
+            xassert(distance > 0);
+            int divisor
+                = distance * term->conf->scrollback.multiplier / term->scale;
 
-                selection_start_scroll_timer(
-                    term, 400000000 / (divisor > 0 ? divisor : 1),
-                    auto_scroll_direction, seat->mouse.col);
-            }
-
-            if (term->selection.ongoing &&
-                (cursor_is_on_new_cell ||
-                 (term->selection.coords.end.row < 0 &&
-                  seat->mouse.x >= term->margins.left &&
-                  seat->mouse.x < term->width - term->margins.right &&
-                  seat->mouse.y >= term->margins.top &&
-                  seat->mouse.y < term->height - term->margins.bottom)))
-            {
-                selection_update(term, (struct coord){.row = seat->mouse.row, .col = seat->mouse.col});
-            }
+            selection_start_scroll_timer(
+                term, 400000000 / (divisor > 0 ? divisor : 1),
+                auto_scroll_direction, seat->mouse.col);
         }
+        const bool mouse_in_bounds =
+            seat->mouse.x >= term->margins.left &&
+            seat->mouse.x < term->width - term->margins.right &&
+            seat->mouse.y >= term->margins.top &&
+            seat->mouse.y < term->height - term->margins.bottom;
+        const bool selection_ongoing =
+            (!term->vimode.active && term->selection.ongoing) ||
+            term->vimode.selection.mouse_button_pressed;
+        if (selection_ongoing && (cursor_is_on_new_cell ||
+            (term->selection.coords.end.row < 0 && mouse_in_bounds))) {
+            struct coord point = {.row = seat->mouse.row,
+                                  .col = seat->mouse.col};
+            selection_update(term, point);
+            vimode_mouse_move(term, point);
+        }
+
 
         /* Send mouse event to client application */
         if (!term_mouse_grabbed(term, seat) &&
@@ -3244,9 +3254,6 @@ wl_pointer_button(void *data, struct wl_pointer *wl_pointer,
         break;
 
     case TERM_SURF_GRID: {
-         // TODO (kociap): unsure whether mouse should cancel vimode
-         // or work in tandem.
-        vimode_cancel(term);
         urls_reset(term);
 
         bool cursor_is_on_grid = seat->mouse.col >= 0 && seat->mouse.row >= 0;
@@ -3282,7 +3289,11 @@ wl_pointer_button(void *data, struct wl_pointer *wl_pointer,
         }
 
         case WL_POINTER_BUTTON_STATE_RELEASED:
-            selection_finalize(seat, term, serial);
+            if (!term->vimode.active) {
+                selection_finalize(seat, term, serial);
+            } else {
+                vimode_mouse_selection_end(term);
+            }
 
             if (send_to_client && !term_mouse_grabbed(term, seat)) {
                 term_mouse_up(

@@ -8,6 +8,7 @@
 #include "selection.h"
 #include "terminal.h"
 #include "url-mode.h"
+#include "vimode.h"
 #include "util.h"
 
 void
@@ -47,6 +48,7 @@ cmd_scrollback_up(struct terminal *term, int rows)
 
     selection_view_up(term, new_view);
     term->grid->view = new_view;
+    vimode_view_up(term, 0);
 
     if (rows < term->rows) {
         term_damage_scroll(
@@ -101,6 +103,7 @@ cmd_scrollback_down(struct terminal *term, int rows)
 
     selection_view_down(term, new_view);
     term->grid->view = new_view;
+    vimode_view_down(term, 0);
 
     if (rows < term->rows) {
         term_damage_scroll(
