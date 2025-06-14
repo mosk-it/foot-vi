@@ -809,6 +809,7 @@ render_cell(struct terminal *term, pixman_image_t *pix,
         const bool is_highlighted = 
             is_cell_highlighted(term, (struct coord){.row = row_no, .col = col});
         if(is_highlighted) {
+            // TODO (kociap): Do the same thing as for selection colors.
             if(term->conf->colors.use_custom.highlights) {
                 _fg = term->conf->colors.highlights.fg;
                 _bg = term->conf->colors.highlights.bg;

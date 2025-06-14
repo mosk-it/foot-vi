@@ -657,10 +657,8 @@ struct terminal {
             enum search_direction direction;
         } confirmed_search;
 
-        /*
-         * Highlight ranges in absolute coordinates.
-         * Sorted in ascending order by the start row and column.
-         */
+        // Highlight ranges in absolute coordinates.
+        // Sorted in ascending order by the start row and column.
         struct highlight_location {
             struct highlight_location const* next;
             struct range range;

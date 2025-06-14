@@ -17,10 +17,8 @@
 #include "vimode.h"
 #include "xmalloc.h"
 
-// TODO (kociap): consider adding scrolloff.
-// TODO (kociap): consider not cancelling selection on scroll.
-// TODO (kociap): jump list?
-// TODO (kociap): WORD motions.
+// TODO (kociap): consider not cancelling selection on lines being
+// scrolled out.
 
 static bool is_mode_visual(enum vi_mode const mode)
 {
@@ -1357,6 +1355,8 @@ static void execute_vimode_binding(struct seat *seat, struct terminal *term,
             mode = VI_MODE_VBLOCK;
         }
 
+        // TODO (kociap): selection start is in view relative, so scrolling and
+        // changing mode will alter the start position.
         enum selection_kind const selection = selection_kind_from_vi_mode(mode);
         if (is_mode_visual(term->vimode.mode)) {
             // "Entering" the same mode exits it. Otherwise, we switch from
