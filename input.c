@@ -2606,6 +2606,8 @@ wl_pointer_leave(void *data, struct wl_pointer *wl_pointer,
             break;
 
         case TERM_SURF_GRID:
+            // We want to keep the vimode selection going regardless
+            // of whether we have focus or not.
             if(!old_moused->vimode.active) {
                 selection_finalize(seat, old_moused, seat->pointer.serial);
             }
