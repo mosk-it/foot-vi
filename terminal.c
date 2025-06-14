@@ -2502,7 +2502,11 @@ term_damage_cell(struct terminal* const term, int const row, int const col)
 void
 term_damage_cell_in_view(struct terminal* const term, int const row, int const col)
 {
-    if(col >= term->grid->num_cols || col < 0) {
+    if(col >= term->cols || col < 0) {
+        return;
+    }
+
+    if(row >= term->rows || row < 0) {
         return;
     }
 
