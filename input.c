@@ -2606,9 +2606,9 @@ wl_pointer_leave(void *data, struct wl_pointer *wl_pointer,
             break;
 
         case TERM_SURF_GRID:
-            // TODO (kociap): unsure what this does and when it
-            // triggers.
-            selection_finalize(seat, old_moused, seat->pointer.serial);
+            if(!old_moused->vimode.active) {
+                selection_finalize(seat, old_moused, seat->pointer.serial);
+            }
             break;
 
         case TERM_SURF_NONE:
