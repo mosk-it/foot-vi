@@ -1468,6 +1468,8 @@ parse_color_theme(struct context *ctx, struct color_theme *theme)
     else if (streq(key, "background")) color = &theme->bg;
     else if (streq(key, "selection-foreground")) color = &theme->selection_fg;
     else if (streq(key, "selection-background")) color = &theme->selection_bg;
+    else if (streq(key, "highlight-foreground")) color = &theme->highlight_fg;
+    else if (streq(key, "highlight-background")) color = &theme->highlight_bg;
 
     else if (streq(key, "jump-labels")) {
         if (!value_to_two_colors(
@@ -1536,20 +1538,6 @@ parse_color_theme(struct context *ctx, struct color_theme *theme)
         }
 
         theme->use_custom.cursor = true;
-        return true;
-    }
-
-    else if (streq(key, "highlights")) {
-        if (!value_to_two_colors(
-                ctx,
-                &theme->highlights.fg,
-                &theme->highlights.bg,
-                false))
-        {
-            return false;
-        }
-
-        theme->use_custom.highlights = true;
         return true;
     }
 

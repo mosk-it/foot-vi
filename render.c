@@ -824,10 +824,24 @@ render_cell(struct terminal *term, pixman_image_t *pix,
         const bool is_highlighted = 
             is_cell_highlighted(term, (struct coord){.row = row_no, .col = col});
         if(is_highlighted) {
-            // TODO (kociap): Do the same thing as for selection colors.
-            if(term->conf->colors.use_custom.highlights) {
-                _fg = term->conf->colors.highlights.fg;
-                _bg = term->conf->colors.highlights.bg;
+            const uint32_t cell_fg = _fg;
+            const uint32_t cell_bg = _bg;
+
+            const uint32_t hl_fg = term->colors.highlight_fg;
+            const uint32_t hl_bg = term->colors.highlight_bg;
+            const bool custom_fg = hl_fg >> 24 == 0;
+            const bool custom_bg = hl_bg >> 24 == 0;
+            const bool custom_both = custom_fg && custom_bg;
+
+            if (custom_both) {
+                _fg = hl_fg;
+                _bg = hl_bg;
+            } else if (custom_bg) {
+                _bg = hl_bg;
+                _fg = cell->attrs.reverse ? cell_bg : cell_fg;
+            } else if (custom_fg) {
+                _fg = hl_fg;
+                _bg = cell->attrs.reverse ? cell_fg : cell_bg;
             } else {
                 _fg = term->colors.table[0];
                 _bg = term->colors.table[1];

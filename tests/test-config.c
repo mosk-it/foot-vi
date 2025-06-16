@@ -739,6 +739,8 @@ test_section_colors_dark(void)
     test_color(&ctx, &parse_section_colors_dark, "dim7", false, &conf.colors_dark.dim[7]);
     test_color(&ctx, &parse_section_colors_dark, "selection-foreground", false, &conf.colors_dark.selection_fg);
     test_color(&ctx, &parse_section_colors_dark, "selection-background", false, &conf.colors_dark.selection_bg);
+    test_color(&ctx, &parse_section_colors_dark, "highlight-foreground", false, &conf.colors_dark.highlight_fg);
+    test_color(&ctx, &parse_section_colors_dark, "highlight-background", false, &conf.colors_dark.highlight_bg);
     test_color(&ctx, &parse_section_colors_dark, "urls", false, &conf.colors_dark.url);
     test_two_colors(&ctx, &parse_section_colors_dark, "jump-labels", false,
                     &conf.colors_dark.jump_label.fg,
@@ -752,10 +754,6 @@ test_section_colors_dark(void)
     test_two_colors(&ctx, &parse_section_colors_dark, "search-box-match", false,
                     &conf.colors_dark.search_box.match.fg,
                     &conf.colors_dark.search_box.match.bg);
-    test_two_colors(&ctx, &parse_section_colors_dark, "highlights", false,
-                    &conf.colors_dark.highlights.fg,
-                    &conf.colors_dark.highlights.bg);
-
     test_two_colors(&ctx, &parse_section_colors_dark, "cursor", false,
                     &conf.colors_dark.cursor.text,
                     &conf.colors_dark.cursor.cursor);

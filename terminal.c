@@ -1325,6 +1325,8 @@ term_init(const struct config *conf, struct fdm *fdm, struct reaper *reaper,
             .cursor_bg = (theme->use_custom.cursor ? 1u << 31 : 0) | theme->cursor.cursor,
             .selection_fg = theme->selection_fg,
             .selection_bg = theme->selection_bg,
+            .highlight_fg = theme->highlight_fg,
+            .highlight_bg = theme->highlight_bg,
             .active_theme = conf->initial_color_theme,
         },
         .color_stack = {
