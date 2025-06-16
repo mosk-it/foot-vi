@@ -650,7 +650,13 @@ draw_cursor(const struct terminal *term, const struct cell *cell,
         }
     }
 
-    switch (term->cursor_style) {
+    enum cursor_style style = term->cursor_style;
+    // Always draw block cursor when in vimode.
+    if (term->vimode.active) {
+        style = CURSOR_BLOCK; 
+    }
+
+    switch (style) {
     case CURSOR_BLOCK:
         if (likely(term->cursor_blink.state == CURSOR_BLINK_ON) ||
             !term->kbd_focus)
@@ -727,6 +733,9 @@ render_cell(struct terminal *term, pixman_image_t *pix,
     const int y = term->margins.top + row_no * height;
 
     const bool is_selected = cell->attrs.selected;
+    // Always draw block cursor when in vimode.
+    const bool cursor_style_block = 
+        term->cursor_style == CURSOR_BLOCK || term->vimode.active;
 
     uint32_t _fg = 0;
     uint32_t _bg = 0;
@@ -788,16 +797,22 @@ render_cell(struct terminal *term, pixman_image_t *pix,
             _fg = cell_bg;
         }
 
-        // Cursor is always inverted, thus we want to invert it when
-        // the vi mode is visual or visual block for visibility
-        // (otherwise it is difficult to tell its position within the
-        // row).
-        const bool mode_not_vline = term->vimode.mode == VI_MODE_VISUAL || 
-                                    term->vimode.mode == VI_MODE_VBLOCK;
-        if (has_cursor && mode_not_vline) {
-            uint32_t swap = _fg;
-            _fg = _bg;
-            _bg = swap;
+        if (has_cursor && cursor_style_block) {
+            // Cursor is always inverted, thus we want to revert it
+            // when the vi mode is visual line for visibility
+            // (otherwise it is difficult to tell its position within
+            // the row). But we do so only when neither of the colors
+            // is custom as this could result in the cursor not being
+            // particularly visible either.
+            const bool mode_vline = term->vimode.mode == VI_MODE_VLINE;
+            const bool any_color_custom = custom_fg || custom_bg;
+            if (mode_vline && !any_color_custom) {
+                _bg = cell_fg;
+                _fg = cell_bg;
+            } else {
+                _bg = cell_bg;
+                _fg = cell_fg;
+            }
         }
 
         if (unlikely(_fg == _bg)) {
@@ -1081,7 +1096,7 @@ render_cell(struct terminal *term, pixman_image_t *pix,
         mtx_unlock(&term->render.workers.lock);
     }
 
-    if (unlikely(has_cursor && term->cursor_style == CURSOR_BLOCK && term->kbd_focus)) {
+    if (unlikely(has_cursor && cursor_style_block && term->kbd_focus)) {
         const pixman_color_t bg_without_alpha = color_hex_to_pixman(_bg, gamma_correct);
         draw_cursor(term, cell, font, pix, &fg, &bg_without_alpha, x, y, cell_cols);
     }
@@ -1232,7 +1247,7 @@ render_cell(struct terminal *term, pixman_image_t *pix,
     }
 
 draw_cursor:
-    if (has_cursor && (term->cursor_style != CURSOR_BLOCK || !term->kbd_focus)) {
+    if (has_cursor && (!cursor_style_block || !term->kbd_focus)) {
         const pixman_color_t bg_without_alpha = color_hex_to_pixman(_bg, gamma_correct);
         draw_cursor(term, cell, font, pix, &fg, &bg_without_alpha, x, y, cell_cols);
     }
