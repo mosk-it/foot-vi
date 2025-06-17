@@ -47,8 +47,10 @@ cmd_scrollback_up(struct terminal *term, int rows)
             view, new_view, offset, grid_rows);
 
     selection_view_up(term, new_view);
+    const int delta =
+        (term->grid->view - new_view) & (term->grid->num_rows - 1);
     term->grid->view = new_view;
-    vimode_view_up(term, 0);
+    vimode_view_up(term, delta);
 
     if (rows < term->rows) {
         term_damage_scroll(
@@ -102,8 +104,10 @@ cmd_scrollback_down(struct terminal *term, int rows)
             view, new_view, offset, grid_rows);
 
     selection_view_down(term, new_view);
+    const int delta =
+        (new_view - term->grid->view) & (term->grid->num_rows - 1);
     term->grid->view = new_view;
-    vimode_view_down(term, 0);
+    vimode_view_down(term, delta);
 
     if (rows < term->rows) {
         term_damage_scroll(

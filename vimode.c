@@ -458,17 +458,16 @@ void vimode_cancel(struct terminal *term)
     render_refresh(term);
 }
 
-void vimode_view_up(struct terminal *term, int const delta)
+void vimode_view_up(struct terminal *const term, int const delta)
 {
     if (!term->vimode.active) {
         return;
     }
 
-    damage_cursor_cell(term);
-    term->vimode.cursor.row += delta;
     clip_cursor_to_view(term);
     update_selection(term);
     update_highlights(term);
+    term->vimode.selection.start.row += delta;
 }
 
 void vimode_view_down(struct terminal *const term, int const delta)
@@ -477,11 +476,10 @@ void vimode_view_down(struct terminal *const term, int const delta)
         return;
     }
 
-    damage_cursor_cell(term);
-    term->vimode.cursor.row -= delta;
     clip_cursor_to_view(term);
     update_selection(term);
     update_highlights(term);
+    term->vimode.selection.start.row -= delta;
 }
 
 static ssize_t matches_cell(const struct terminal *term,
