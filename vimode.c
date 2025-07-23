@@ -1233,6 +1233,7 @@ static void execute_vimode_binding(struct seat *seat, struct terminal *term,
         damage_cursor_cell(term);
         term->vimode.cursor.col = 0;
         damage_cursor_cell(term);
+        update_selection(term);
         break;
 
     case BIND_ACTION_VIMODE_LINE_END: {
@@ -1248,6 +1249,7 @@ static void execute_vimode_binding(struct seat *seat, struct terminal *term,
         }
         term->vimode.cursor.col = col;
         damage_cursor_cell(term);
+        update_selection(term);
     } break;
 
     case BIND_ACTION_VIMODE_TEXT_BEGIN: {
@@ -1263,6 +1265,7 @@ static void execute_vimode_binding(struct seat *seat, struct terminal *term,
         }
         term->vimode.cursor.col = col;
         damage_cursor_cell(term);
+        update_selection(term);
     } break;
 
     case BIND_ACTION_VIMODE_WORD_BEGIN:
