@@ -73,6 +73,7 @@ static int cursor_from_scrollback_relative(struct terminal *const term, int row)
 {
     row = grid_row_sb_to_abs(term->grid, term->rows, row);
     row -= term->grid->offset;
+    row &= (term->grid->num_rows - 1);
     return row;
 }
 
@@ -117,7 +118,7 @@ static void clip_cursor_to_view(struct terminal *const term)
         cursor_row = view_row + term->rows - 1;
     }
     term->vimode.cursor.row = cursor_from_scrollback_relative(term, cursor_row);
-    LOG_DBG("CLIP CURSOR (%d, %d)\n", term->vimode.cursor.row,
+    LOG_DBG("CLIP CURSOR (%d, %d)", term->vimode.cursor.row,
             term->vimode.cursor.col);
     damage_cursor_cell(term);
     render_refresh(term);
@@ -411,6 +412,8 @@ void vimode_begin(struct terminal *term)
     vimode_cancel(term);
 
     term->vimode.cursor = term->grid->cursor.point;
+    LOG_DBG("VIMODE CURSOR AT (%d, %d)", term->vimode.cursor.row,
+            term->vimode.cursor.col);
     // From a user's perspective, it is reasonable to expect that the
     // mode will launch at the exact position in the scrollback they are
     // currently viewing, thus we move the cursor into the view.
