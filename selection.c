@@ -758,15 +758,15 @@ selection_start(struct terminal *term, struct coord const start,
         break;
 
     case SELECTION_WORD_WISE: {
-        struct coord start = {start.col, term->grid->view + start.row};
-        struct coord end = {start.col, term->grid->view + start.row};
-        selection_find_word_boundary_left(term, &start, spaces_only);
-        selection_find_word_boundary_right(term, &end, spaces_only, true);
+        struct coord first = {start.col, term->grid->view + start.row};
+        struct coord last = {start.col, term->grid->view + start.row};
+        selection_find_word_boundary_left(term, &first, spaces_only);
+        selection_find_word_boundary_right(term, &last, spaces_only, true);
 
-        term->selection.coords.start = start;
+        term->selection.coords.start = first;
 
         term->selection.pivot.start = term->selection.coords.start;
-        term->selection.pivot.end = end;
+        term->selection.pivot.end = last;
 
         /*
          * FIXME: go through selection.c and make sure all public
@@ -777,7 +777,7 @@ selection_start(struct terminal *term, struct coord const start,
          * view-local.
          */
 
-        selection_update(term, (struct coord){end.col, end.row - term->grid->view});
+        selection_update(term, (struct coord){last.col, last.row - term->grid->view});
         break;
     }
 
