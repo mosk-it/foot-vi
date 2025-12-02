@@ -489,31 +489,40 @@ static ssize_t matches_cell(const struct terminal *term,
                             const struct cell *cell, char32_t const *const buf,
                             size_t const len, size_t search_ofs)
 {
-  assert(search_ofs < len);
+    assert(search_ofs < len);
 
-  char32_t base = cell->wc;
-  const struct composed *composed = NULL;
+    char32_t base = cell->wc;
+    const struct composed *composed = NULL;
 
-  if (base >= CELL_COMB_CHARS_LO && base <= CELL_COMB_CHARS_HI) {
-    composed = composed_lookup(term->composed, base - CELL_COMB_CHARS_LO);
-    base = composed->chars[0];
-  }
-
-  if (composed == NULL && base == 0 && buf[search_ofs] == U' ')
-    return 1;
-
-  if (c32ncasecmp(&base, buf, 1) != 0)
-    return -1;
-
-  if (composed != NULL) {
-    if (search_ofs + composed->count > len)
-      return -1;
-
-    for (size_t j = 1; j < composed->count; j++) {
-      if (composed->chars[j] != buf[search_ofs + j])
-        return -1;
+    if (base >= CELL_COMB_CHARS_LO && base <= CELL_COMB_CHARS_HI) {
+        composed = composed_lookup(term->composed, base - CELL_COMB_CHARS_LO);
+        base = composed->chars[0];
     }
-  }
+
+    if (composed == NULL && base == 0 && buf[search_ofs] == U' ')
+        return 1;
+
+    // Search is case sensitive if the search buffer contains any
+    // uppercase characters.
+    if (hasc32upper(buf)) {
+        if (c32ncmp(&base, buf + search_ofs, 1) != 0) {
+            return -1;
+        }
+    } else {
+        if (c32ncasecmp(&base, buf + search_ofs, 1) != 0) {
+            return -1;
+        }
+    }
+
+    if (composed != NULL) {
+        if (search_ofs + composed->count > len)
+            return -1;
+
+        for (size_t j = 1; j < composed->count; j++) {
+            if (composed->chars[j] != buf[search_ofs + j])
+                return -1;
+        }
+    }
 
     return composed != NULL ? composed->count : 1;
 }
@@ -1737,7 +1746,8 @@ void vimode_input(struct seat *seat, struct terminal *term,
                 count = xkb_compose_state_get_utf8(seat->kbd.xkb_compose_state,
                                                    (char *)buf, sizeof(buf));
                 xkb_compose_state_reset(seat->kbd.xkb_compose_state);
-            } else if (compose_status == XKB_COMPOSE_CANCELLED) {
+            } else if (compose_status == XKB_COMPOSE_CANCELLED ||
+                       compose_status == XKB_COMPOSE_COMPOSING) {
                 count = 0;
             } else {
                 count = xkb_state_key_get_utf8(seat->kbd.xkb_state, key,
