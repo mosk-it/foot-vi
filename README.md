@@ -272,42 +272,6 @@ These are the default shortcuts. See `man foot.ini` and the example
 : Holding for a while before dragging (time delay can be configured)
   emulates mouse dragging with left button held.
 
-
-## Server (daemon) mode
-
-When run normally, **foot** is a single-window application; if you
-want another window, start another foot process.
-
-However, foot can also be run in a _server_ mode. In this mode, one
-process hosts multiple windows. All Wayland communication, VT parsing
-and rendering is done in the server process.
-
-New windows are opened by running `footclient`, which remains running
-until the terminal window is closed, at which point it exits with the
-exit value of the client process (typically the shell).
-
-The point of this mode is **a)** reduced memory footprint - all
-terminal windows will share fonts and glyph cache, and **b)** reduced
-startup time - loading fonts and populating the glyph cache takes
-time, but in server mode it only happens once.
-
-The downside is a performance penalty; all windows' input and output
-are multiplexed in the same thread (but each window will have its own
-set of rendering threads). This means that if one window is very busy
-with, for example, producing output, then other windows will suffer.
-
-And of course, should the server process crash, **all** windows will
-be gone.
-
-Typical usage would be to start the server process (`foot --server`)
-when starting your Wayland compositor (i.e. logging in to your
-desktop), and then run `footclient` instead of `foot` whenever you
-want to launch a new terminal.
-
-Foot supports socket activation, which means `foot --server` will only be
-started the first time you'll run `footclient`. (systemd user units are
-included, but it can work with other supervision suites).
-
 ## URLs
 
 Foot supports URL detection. But, unlike many other terminal
@@ -379,13 +343,13 @@ key bindings):
 
 ```ini
 [key-bindings]
-pipe-command-output=[sh -c "f=$(mktemp); cat - > $f; footclient emacsclient -nw $f; rm $f"] Control+Shift+g
+pipe-command-output=[sh -c "f=$(mktemp); cat - > $f; foot emacsclient -nw $f; rm $f"] Control+Shift+g
 ```
 
 When pressing <kbd>ctrl</kbd>+<kbd>shift</kbd>+<kbd>g</kbd>, the last
 command's output is written to a temporary file, then an emacsclient
-is started in a new footclient instance. The temporary file is removed
-after the footclient instance has closed.
+is started in a new foot instance. The temporary file is removed
+after the foot instance has closed.
 
 For this to work, the shell must emit an OSC-133;C (`\E]133;C\E\\`)
 sequence before command output starts, and an OSC-133;D

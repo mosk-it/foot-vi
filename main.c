@@ -1,18 +1,18 @@
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
-#include <stdbool.h>
+#include <errno.h>
+#include <getopt.h>
 #include <limits.h>
 #include <locale.h>
-#include <getopt.h>
 #include <signal.h>
-#include <errno.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <sys/utsname.h>
 #include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/utsname.h>
 
 #include <fcft/fcft.h>
 
@@ -27,7 +27,6 @@
 #include "macros.h"
 #include "reaper.h"
 #include "render.h"
-#include "server.h"
 #include "shm.h"
 #include "terminal.h"
 #include "util.h"
@@ -35,11 +34,10 @@
 #include "xsnprintf.h"
 
 #if !defined(__STDC_UTF_32__) || !__STDC_UTF_32__
- #error "char32_t does not use UTF-32"
+#error "char32_t does not use UTF-32"
 #endif
 
-static bool
-fdm_sigint(struct fdm *fdm, int signo, void *data)
+static bool fdm_sigint(struct fdm *fdm, int signo, void *data)
 {
     *(volatile sig_atomic_t *)data = true;
     return true;
@@ -47,68 +45,70 @@ fdm_sigint(struct fdm *fdm, int signo, void *data)
 
 struct sigusr_context {
     struct terminal *term;
-    struct server *server;
 };
 
-static bool
-fdm_sigusr(struct fdm *fdm, int signo, void *data)
+static bool fdm_sigusr(struct fdm *fdm, int signo, void *data)
 {
     xassert(signo == SIGUSR1 || signo == SIGUSR2);
 
     struct sigusr_context *ctx = data;
 
-    if (ctx->server != NULL) {
-        if (signo == SIGUSR1)
-            server_global_theme_switch_to_dark(ctx->server);
-        else
-            server_global_theme_switch_to_light(ctx->server);
+    if (signo == SIGUSR1) {
+        term_theme_switch_to_dark(ctx->term);
     } else {
-        if (signo == SIGUSR1)
-            term_theme_switch_to_dark(ctx->term);
-        else
-            term_theme_switch_to_light(ctx->term);
+        term_theme_switch_to_light(ctx->term);
     }
 
     return true;
 }
 
-static void
-print_usage(const char *prog_name)
+static void print_usage(const char *prog_name)
 {
     static const char options[] =
         "\nOptions:\n"
-        "  -c,--config=PATH                         load configuration from PATH ($XDG_CONFIG_HOME/foot/foot.ini)\n"
-        "  -C,--check-config                        verify configuration, exit with 0 if ok, otherwise exit with 1\n"
-        "  -o,--override=[section.]key=value        override configuration option\n"
-        "  -f,--font=FONT                           comma separated list of fonts in fontconfig format (monospace)\n"
-        "  -t,--term=TERM                           value to set the environment variable TERM to (" FOOT_DEFAULT_TERM ")\n"
-        "  -T,--title=TITLE                         initial window title (foot)\n"
-        "  -a,--app-id=ID                           window application ID (foot)\n"
+        "  -c,--config=PATH                         load configuration from "
+        "PATH ($XDG_CONFIG_HOME/foot/foot.ini)\n"
+        "  -C,--check-config                        verify configuration, exit "
+        "with 0 if ok, otherwise exit with 1\n"
+        "  -o,--override=[section.]key=value        override configuration "
+        "option\n"
+        "  -f,--font=FONT                           comma separated list of "
+        "fonts in fontconfig format (monospace)\n"
+        "  -t,--term=TERM                           value to set the "
+        "environment variable TERM to (" FOOT_DEFAULT_TERM ")\n"
+        "  -T,--title=TITLE                         initial window title "
+        "(foot)\n"
+        "  -a,--app-id=ID                           window application ID "
+        "(foot)\n"
         "     --toplevel-tag=TAG                    set a custom toplevel tag\n"
         "  -m,--maximized                           start in maximized mode\n"
         "  -F,--fullscreen                          start in fullscreen mode\n"
-        "  -L,--login-shell                         start shell as a login shell\n"
-        "  --pty=PATH                               display an existing PTY instead of creating one\n"
-        "  -D,--working-directory=DIR               directory to start in (CWD)\n"
-        "  -w,--window-size-pixels=WIDTHxHEIGHT     initial width and height, in pixels\n"
-        "  -W,--window-size-chars=WIDTHxHEIGHT      initial width and height, in characters\n"
-        "  -s,--server[=PATH]                       run as a server (use 'footclient' to start terminals).\n"
-        "                                           Without PATH, $XDG_RUNTIME_DIR/foot-$WAYLAND_DISPLAY.sock will be used.\n"
-        "  -H,--hold                                remain open after child process exits\n"
-        "  -p,--print-pid=FILE|FD                   print PID to file or FD (only applicable in server mode)\n"
+        "  -L,--login-shell                         start shell as a login "
+        "shell\n"
+        "  --pty=PATH                               display an existing PTY "
+        "instead of creating one\n"
+        "  -D,--working-directory=DIR               directory to start in "
+        "(CWD)\n"
+        "  -w,--window-size-pixels=WIDTHxHEIGHT     initial width and height, "
+        "in pixels\n"
+        "  -W,--window-size-chars=WIDTHxHEIGHT      initial width and height, "
+        "in characters\n"
+        "  -H,--hold                                remain open after child "
+        "process exits\n"
         "  -d,--log-level={info|warning|error|none} log level (warning)\n"
-        "  -l,--log-colorize=[{never|always|auto}]  enable/disable colorization of log output on stderr\n"
-        "  -S,--log-no-syslog                       disable syslog logging (only applicable in server mode)\n"
-        "  -v,--version                             show the version number and quit\n"
-        "  -e                                       ignored (for compatibility with xterm -e)\n";
+        "  -l,--log-colorize=[{never|always|auto}]  enable/disable "
+        "colorization of log output on stderr\n"
+        "  -v,--version                             show the version number "
+        "and quit\n"
+        "  -e                                       ignored (for compatibility "
+        "with xterm -e)\n";
 
     printf("Usage: %s [OPTIONS...]\n", prog_name);
     printf("Usage: %s [OPTIONS...] command [ARGS...]\n", prog_name);
     puts(options);
 }
 
-bool
-locale_is_utf8(void)
+bool locale_is_utf8(void)
 {
     static const char u8[] = u8"ö";
     xassert(strlen(u8) == 2);
@@ -125,53 +125,14 @@ struct shutdown_context {
     int exit_code;
 };
 
-static void
-term_shutdown_cb(void *data, int exit_code)
+static void term_shutdown_cb(void *data, int exit_code)
 {
     struct shutdown_context *ctx = data;
     *ctx->term = NULL;
     ctx->exit_code = exit_code;
 }
 
-static bool
-print_pid(const char *pid_file, bool *unlink_at_exit)
-{
-    LOG_DBG("printing PID to %s", pid_file);
-
-    errno = 0;
-    char *end;
-    int pid_fd = strtoul(pid_file, &end, 10);
-
-    if (errno != 0 || *end != '\0') {
-        if ((pid_fd = open(pid_file,
-                           O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC,
-                           S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)) < 0) {
-            LOG_ERRNO("%s: failed to open", pid_file);
-            return false;
-        } else
-            *unlink_at_exit = true;
-    }
-
-    if (pid_fd >= 0) {
-        char pid[32];
-        size_t n = xsnprintf(pid, sizeof(pid), "%u\n", getpid());
-
-        ssize_t bytes = write(pid_fd, pid, n);
-        close(pid_fd);
-
-        if (bytes < 0) {
-            LOG_ERRNO("failed to write PID to FD=%u", pid_fd);
-            return false;
-        }
-
-        LOG_DBG("wrote %zd bytes to FD=%d", bytes, pid_fd);
-        return true;
-    } else
-        return false;
-}
-
-static void
-sanitize_signals(void)
+static void sanitize_signals(void)
 {
     sigset_t mask;
     sigemptyset(&mask);
@@ -189,8 +150,7 @@ enum {
     TOPLEVEL_TAG_OPTION = CHAR_MAX + 2,
 };
 
-int
-main(int argc, char *const *argv)
+int main(int argc, char *const *argv)
 {
     /* Custom exit code, to enable users to differentiate between foot
      * itself failing, and the client application failing */
@@ -209,52 +169,46 @@ main(int argc, char *const *argv)
 
     const char *const prog_name = argc > 0 ? argv[0] : "<nullptr>";
 
-    static const struct option longopts[] =  {
-        {"config",                 required_argument, NULL, 'c'},
-        {"check-config",           no_argument,       NULL, 'C'},
-        {"override",               required_argument, NULL, 'o'},
-        {"term",                   required_argument, NULL, 't'},
-        {"title",                  required_argument, NULL, 'T'},
-        {"app-id",                 required_argument, NULL, 'a'},
-        {"toplevel-tag",           required_argument, NULL, TOPLEVEL_TAG_OPTION},
-        {"login-shell",            no_argument,       NULL, 'L'},
-        {"working-directory",      required_argument, NULL, 'D'},
-        {"font",                   required_argument, NULL, 'f'},
-        {"window-size-pixels",     required_argument, NULL, 'w'},
-        {"window-size-chars",      required_argument, NULL, 'W'},
-        {"server",                 optional_argument, NULL, 's'},
-        {"hold",                   no_argument,       NULL, 'H'},
-        {"maximized",              no_argument,       NULL, 'm'},
-        {"fullscreen",             no_argument,       NULL, 'F'},
-        {"presentation-timings",   no_argument,       NULL, 'P'}, /* Undocumented */
-        {"pty",                    required_argument, NULL, PTY_OPTION},
-        {"print-pid",              required_argument, NULL, 'p'},
-        {"log-level",              required_argument, NULL, 'd'},
-        {"log-colorize",           optional_argument, NULL, 'l'},
-        {"log-no-syslog",          no_argument,       NULL, 'S'},
-        {"version",                no_argument,       NULL, 'v'},
-        {"help",                   no_argument,       NULL, 'h'},
-        {NULL,                     no_argument,       NULL,   0},
+    static const struct option longopts[] = {
+        {"config", required_argument, NULL, 'c'},
+        {"check-config", no_argument, NULL, 'C'},
+        {"override", required_argument, NULL, 'o'},
+        {"term", required_argument, NULL, 't'},
+        {"title", required_argument, NULL, 'T'},
+        {"app-id", required_argument, NULL, 'a'},
+        {"toplevel-tag", required_argument, NULL, TOPLEVEL_TAG_OPTION},
+        {"login-shell", no_argument, NULL, 'L'},
+        {"working-directory", required_argument, NULL, 'D'},
+        {"font", required_argument, NULL, 'f'},
+        {"window-size-pixels", required_argument, NULL, 'w'},
+        {"window-size-chars", required_argument, NULL, 'W'},
+        {"hold", no_argument, NULL, 'H'},
+        {"maximized", no_argument, NULL, 'm'},
+        {"fullscreen", no_argument, NULL, 'F'},
+        {"presentation-timings", no_argument, NULL, 'P'}, /* Undocumented */
+        {"pty", required_argument, NULL, PTY_OPTION},
+        {"log-level", required_argument, NULL, 'd'},
+        {"log-colorize", optional_argument, NULL, 'l'},
+        {"version", no_argument, NULL, 'v'},
+        {"help", no_argument, NULL, 'h'},
+        {NULL, no_argument, NULL, 0},
     };
 
     bool check_config = false;
     const char *conf_path = NULL;
     const char *custom_cwd = NULL;
     const char *pty_path = NULL;
-    bool as_server = false;
-    const char *conf_server_socket_path = NULL;
     bool presentation_timings = false;
     bool hold = false;
-    bool unlink_pid_file = false;
-    const char *pid_file = NULL;
     enum log_class log_level = LOG_CLASS_WARNING;
     enum log_colorize log_colorize = LOG_COLORIZE_AUTO;
-    bool log_syslog = true;
     user_notifications_t user_notifications = tll_init();
     config_override_t overrides = tll_init();
 
     while (true) {
-        int c = getopt_long(argc, argv, "+c:Co:t:T:a:LD:f:w:W:s::HmFPp:d:l::Sveh", longopts, NULL);
+        int c =
+            getopt_long(argc, argv, "+c:Co:t:T:a:LD:f:w:W:s::HmFPp:d:l::Sveh",
+                        longopts, NULL);
 
         if (c == -1)
             break;
@@ -310,35 +264,33 @@ main(int argc, char *const *argv)
 
         case 'w': {
             unsigned width, height;
-            if (sscanf(optarg, "%ux%u", &width, &height) != 2 || width == 0 || height == 0) {
-                fprintf(stderr, "error: invalid window-size-pixels: %s\n", optarg);
+            if (sscanf(optarg, "%ux%u", &width, &height) != 2 || width == 0 ||
+                height == 0) {
+                fprintf(stderr, "error: invalid window-size-pixels: %s\n",
+                        optarg);
                 return ret;
             }
 
             tll_push_back(
-                overrides, xasprintf("initial-window-size-pixels=%ux%u",
-                                     width, height));
+                overrides,
+                xasprintf("initial-window-size-pixels=%ux%u", width, height));
             break;
         }
 
         case 'W': {
             unsigned width, height;
-            if (sscanf(optarg, "%ux%u", &width, &height) != 2 || width == 0 || height == 0) {
-                fprintf(stderr, "error: invalid window-size-chars: %s\n", optarg);
+            if (sscanf(optarg, "%ux%u", &width, &height) != 2 || width == 0 ||
+                height == 0) {
+                fprintf(stderr, "error: invalid window-size-chars: %s\n",
+                        optarg);
                 return ret;
             }
 
             tll_push_back(
-                overrides, xasprintf("initial-window-size-chars=%ux%u",
-                                     width, height));
+                overrides,
+                xasprintf("initial-window-size-chars=%ux%u", width, height));
             break;
         }
-
-        case 's':
-            as_server = true;
-            if (optarg != NULL)
-                conf_server_socket_path = optarg;
-            break;
 
         case PTY_OPTION:
             pty_path = optarg;
@@ -360,18 +312,12 @@ main(int argc, char *const *argv)
             tll_push_back(overrides, xstrdup("initial-window-mode=fullscreen"));
             break;
 
-        case 'p':
-            pid_file = optarg;
-            break;
-
         case 'd': {
             int lvl = log_level_from_string(optarg);
             if (unlikely(lvl < 0)) {
-                fprintf(
-                    stderr,
-                    "-d,--log-level: %s: argument must be one of %s\n",
-                    optarg,
-                    log_level_string_hint());
+                fprintf(stderr,
+                        "-d,--log-level: %s: argument must be one of %s\n",
+                        optarg, log_level_string_hint());
                 return ret;
             }
             log_level = lvl;
@@ -386,13 +332,12 @@ main(int argc, char *const *argv)
             else if (streq(optarg, "always"))
                 log_colorize = LOG_COLORIZE_ALWAYS;
             else {
-                fprintf(stderr, "%s: argument must be one of 'never', 'always' or 'auto'\n", optarg);
+                fprintf(
+                    stderr,
+                    "%s: argument must be one of 'never', 'always' or 'auto'\n",
+                    optarg);
                 return ret;
             }
-            break;
-
-        case 'S':
-            log_syslog = false;
             break;
 
         case 'v':
@@ -411,13 +356,7 @@ main(int argc, char *const *argv)
         }
     }
 
-    if (as_server && pty_path) {
-        fputs("error: --pty is incompatible with server mode\n", stderr);
-        return ret;
-    }
-
-    log_init(log_colorize, as_server && log_syslog,
-             as_server ? LOG_FACILITY_DAEMON : LOG_FACILITY_USER, log_level);
+    log_init(log_colorize, log_level);
 
     if (argc > 0) {
         argc -= optind;
@@ -431,8 +370,8 @@ main(int argc, char *const *argv)
         if (uname(&name) < 0)
             LOG_ERRNO("uname() failed");
         else
-            LOG_INFO("arch: %s %s/%zu-bit",
-                     name.sysname, name.machine, sizeof(void *) * 8);
+            LOG_INFO("arch: %s %s/%zu-bit", name.sysname, name.machine,
+                     sizeof(void *) * 8);
     }
 
     srand(time(NULL));
@@ -468,9 +407,8 @@ main(int argc, char *const *argv)
 
             if (setlocale(LC_CTYPE, fallback_locale) != NULL) {
                 if (saved_locale != NULL) {
-                    LOG_WARN(
-                        "'%s' is not a UTF-8 locale, falling back to '%s'",
-                        saved_locale, fallback_locale);
+                    LOG_WARN("'%s' is not a UTF-8 locale, falling back to '%s'",
+                             saved_locale, fallback_locale);
 
                     user_notification_add_fmt(
                         &user_notifications, USER_NOTIFICATION_WARNING,
@@ -478,11 +416,12 @@ main(int argc, char *const *argv)
                         saved_locale, fallback_locale);
 
                 } else {
-                    LOG_WARN(
-                        "invalid locale, falling back to '%s'", fallback_locale);
+                    LOG_WARN("invalid locale, falling back to '%s'",
+                             fallback_locale);
                     user_notification_add_fmt(
                         &user_notifications, USER_NOTIFICATION_WARNING,
-                        "invalid locale, falling back to '%s'", fallback_locale);
+                        "invalid locale, falling back to '%s'",
+                        fallback_locale);
                 }
 
                 bad_locale = false;
@@ -512,8 +451,8 @@ main(int argc, char *const *argv)
     }
 
     struct config conf = {NULL};
-    bool conf_successful = config_load(
-        &conf, conf_path, &user_notifications, &overrides, check_config, as_server);
+    bool conf_successful = config_load(&conf, conf_path, &user_notifications,
+                                       &overrides, check_config);
 
     tll_free_and_free(overrides, free);
     if (!conf_successful) {
@@ -530,23 +469,17 @@ main(int argc, char *const *argv)
                    "fcft log level enum offset");
     _Static_assert((int)LOG_COLORIZE_ALWAYS == (int)FCFT_LOG_COLORIZE_ALWAYS,
                    "fcft colorize enum mismatch");
-    fcft_init(
-        (enum fcft_log_colorize)log_colorize,
-        as_server && log_syslog,
-        (enum fcft_log_class)log_level);
+    // Never do syslog.
+    fcft_init((enum fcft_log_colorize)log_colorize, false,
+              (enum fcft_log_class)log_level);
 
-    if (conf_server_socket_path != NULL) {
-        free(conf.server_socket_path);
-        conf.server_socket_path = xstrdup(conf_server_socket_path);
-    }
     conf.presentation_timings = presentation_timings;
     conf.hold_at_exit = hold;
 
     if (conf.tweak.font_monospace_warn && conf.fonts[0].count > 0) {
-        check_if_font_is_monospaced(
-            conf.fonts[0].arr[0].pattern, &conf.notifications);
+        check_if_font_is_monospaced(conf.fonts[0].arr[0].pattern,
+                                    &conf.notifications);
     }
-
 
     if (bad_locale) {
         static char *const bad_locale_fake_argv[] = {"/bin/sh", "-c", "", NULL};
@@ -561,8 +494,8 @@ main(int argc, char *const *argv)
     struct wayland *wayl = NULL;
     struct renderer *renderer = NULL;
     struct terminal *term = NULL;
-    struct server *server = NULL;
-    struct shutdown_context shutdown_ctx = {.term = &term, .exit_code = foot_exit_failure};
+    struct shutdown_context shutdown_ctx = {.term = &term,
+                                            .exit_code = foot_exit_failure};
 
     const char *cwd = custom_cwd;
     char *_cwd = NULL;
@@ -586,10 +519,8 @@ main(int argc, char *const *argv)
         char *resolved_path_cwd = realpath(cwd, NULL);
         char *resolved_path_pwd = realpath(pwd, NULL);
 
-        if (resolved_path_cwd != NULL &&
-            resolved_path_pwd != NULL &&
-            streq(resolved_path_cwd, resolved_path_pwd))
-        {
+        if (resolved_path_cwd != NULL && resolved_path_pwd != NULL &&
+            streq(resolved_path_cwd, resolved_path_pwd)) {
             /*
              * The resolved path of $PWD matches the resolved path of
              * the *actual* working directory - use $PWD.
@@ -615,64 +546,47 @@ main(int argc, char *const *argv)
     if ((key_binding_manager = key_binding_manager_new()) == NULL)
         goto out;
 
-    if ((wayl = wayl_init(
-             fdm, key_binding_manager, conf.presentation_timings)) == NULL)
-    {
+    if ((wayl = wayl_init(fdm, key_binding_manager,
+                          conf.presentation_timings)) == NULL) {
         goto out;
     }
 
     if ((renderer = render_init(fdm, wayl)) == NULL)
         goto out;
 
-    if (!as_server && (term = term_init(
-                           &conf, fdm, reaper, wayl, "foot", cwd, token, pty_path,
-                           argc, argv, NULL,
-                           &term_shutdown_cb, &shutdown_ctx)) == NULL) {
+    term = term_init(&conf, fdm, reaper, wayl, "foot", cwd, token, pty_path,
+                     argc, argv, NULL, &term_shutdown_cb, &shutdown_ctx);
+    if (term == NULL) {
         goto out;
     }
     free(_cwd);
     _cwd = NULL;
 
-    if (as_server && (server = server_init(&conf, fdm, reaper, wayl)) == NULL)
-        goto out;
-
     volatile sig_atomic_t aborted = false;
     if (!fdm_signal_add(fdm, SIGINT, &fdm_sigint, (void *)&aborted) ||
-        !fdm_signal_add(fdm, SIGTERM, &fdm_sigint, (void *)&aborted))
-    {
+        !fdm_signal_add(fdm, SIGTERM, &fdm_sigint, (void *)&aborted)) {
         goto out;
     }
 
     struct sigusr_context sigusr_context = {
         .term = term,
-        .server = server,
     };
 
     if (!fdm_signal_add(fdm, SIGUSR1, &fdm_sigusr, &sigusr_context) ||
-        !fdm_signal_add(fdm, SIGUSR2, &fdm_sigusr, &sigusr_context))
-    {
+        !fdm_signal_add(fdm, SIGUSR2, &fdm_sigusr, &sigusr_context)) {
         goto out;
     }
 
     struct sigaction sig_ign = {.sa_handler = SIG_IGN};
     sigemptyset(&sig_ign.sa_mask);
     if (sigaction(SIGHUP, &sig_ign, NULL) < 0 ||
-        sigaction(SIGPIPE, &sig_ign, NULL) < 0)
-    {
+        sigaction(SIGPIPE, &sig_ign, NULL) < 0) {
         LOG_ERRNO("failed to ignore SIGHUP+SIGPIPE");
         goto out;
     }
 
-    if (as_server)
-        LOG_INFO("running as server; launch terminals by running footclient");
-
-    if (as_server && pid_file != NULL) {
-        if (!print_pid(pid_file, &unlink_pid_file))
-            goto out;
-    }
-
     ret = EXIT_SUCCESS;
-    while (likely(!aborted && (as_server || tll_length(wayl->terms) > 0))) {
+    while (likely(!aborted && tll_length(wayl->terms) > 0)) {
         if (unlikely(!fdm_poll(fdm))) {
             ret = foot_exit_failure;
             break;
@@ -681,7 +595,6 @@ main(int argc, char *const *argv)
 
 out:
     free(_cwd);
-    server_destroy(server);
     term_destroy(term);
 
     shm_fini();
@@ -697,13 +610,10 @@ out:
 
     config_free(&conf);
 
-    if (unlink_pid_file)
-        unlink(pid_file);
-
     LOG_INFO("goodbye");
     fcft_fini();
     log_deinit();
-    return ret == EXIT_SUCCESS && !as_server ? shutdown_ctx.exit_code : ret;
+    return ret == EXIT_SUCCESS ? shutdown_ctx.exit_code : ret;
 }
 
 UNITTEST

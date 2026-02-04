@@ -321,7 +321,6 @@ executable(
   'reaper.c', 'reaper.h',
   'render.c', 'render.h',
   'vimode.c', 'vimode.h',
-  'server.c', 'server.h', 'client-protocol.h',
   'shm.c', 'shm.h',
   'slave.c', 'slave.h',
   'spawn.c', 'spawn.h',
@@ -337,19 +336,8 @@ executable(
   link_with: pgolib,
   install: true)
 
-executable(
-  'footclient',
-  'client.c', 'client-protocol.h',
-  'foot-features.c', 'foot-features.h',
-  'macros.h',
-  'util.h',
-  version,
-  dependencies: [tllist, utf8proc],
-  link_with: common,
-  install: true)
-
 install_data(
-  'foot.desktop', 'foot-server.desktop', 'footclient.desktop',
+  'foot.desktop',
   install_dir: join_paths(get_option('datadir'), 'applications'))
 
 systemd = dependency('systemd', required: false)
@@ -364,17 +352,6 @@ if systemd.found() or custom_systemd_units_dir != ''
   else
     systemd_units_dir = custom_systemd_units_dir
   endif
-
-  configure_file(
-    configuration: configuration,
-    input: 'foot-server.service.in',
-    output: '@BASENAME@',
-    install_dir: systemd_units_dir
-    )
-
-  install_data(
-    'foot-server.socket',
-    install_dir: systemd_units_dir)
 endif
 
 scdoc = dependency('scdoc', native: true, required: get_option('docs'))

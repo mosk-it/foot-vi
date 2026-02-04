@@ -65,7 +65,7 @@ the foot command line
 
 *-a*,*--app-id*=_ID_
 	Value to set the *app-id* property on the Wayland window
-	to. Default: _foot_ (normal mode), or _footclient_ (server mode).
+	to. Default: _foot_.
 
 *toplevel-tag*=_TAG_
 	Value to set the *toplevel-tag* property on the Wayland window
@@ -87,70 +87,12 @@ the foot command line
 	Display an existing pty instead of creating one. This is useful
 	for interacting with VM consoles.
 
-	This option is not currently supported in combination with
-	*-s*,*--server*.
-
 *-D*,*--working-directory*=_DIR_
 	Initial working directory for the client application. Default:
 	_CWD of foot_.
 
-*-s*,*--server*[=_PATH_|_FD_]
-	Run as a server. In this mode, a single foot instance hosts
-	multiple terminals (windows). Use *footclient*(1) to launch new
-	terminals.
-	
-	This saves some memory since for example fonts and glyph caches
-	can be shared between the terminals.
-	
-	It also saves upstart time since the config has already been
-	loaded and parsed, and most importantly, fonts have already been
-	loaded (and their glyph caches are likely to already have been
-	populated).
-	
-	Each terminal will have its own rendering threads, but all Wayland
-	communication, as well as input/output to the shell, is
-	multiplexed in the main thread. Thus, this mode might result in
-	slightly worse performance when multiple terminals are under heavy
-	load.
-	
-	Also be aware that should one terminal crash, it will take all the
-	others with it.
-	
-	The default path is
-	*$XDG\_RUNTIME\_DIR/foot-$WAYLAND\_DISPLAY.sock*.
-	
-	If *$XDG\_RUNTIME\_DIR* is not set, the default path is instead
-	*/tmp/foot.sock*.
-	
-	If *$XDG\_RUNTIME\_DIR* is set, but *$WAYLAND\_DISPLAY* is not,
-	the default path is *$XDG\_RUNTIME\_DIR/foot.sock*.
-	
-	Note that if you change the default, you will also need to use the
-	*--server-socket* option in *footclient*(1) and point it to your
-	custom socket path.
-
-	If the argument is a number, foot will interpret it as the file descriptor
-	of a socket provided by a supervision daemon (such as systemd or s6), and
-	use that socket as it's own.
-
-	Two systemd units (foot-server.{service,socket}) are provided to use that
-	feature with systemd. To use socket activation, only enable the
-	socket unit.
-
-	Note that starting *foot --server* as a systemd service will use
-	the environment of the systemd user instance; thus, you'll need
-	to import *$WAYLAND_DISPLAY* in it using *systemctl --user
-	import-environment WAYLAND_DISPLAY*.
-
 *-H*,*--hold*
 	Remain open after child process exits.
-
-*-p*,*--print-pid*=_FILE_|_FD_
-	Print PID to this file, or FD, when successfully started. The file
-	(or FD) is closed immediately after writing the PID. When a _FILE_
-	as been specified, the file is unlinked at exit.
-
-	This option can only be used in combination with *-s*,*--server*.
 
 *-d*,*--log-level*={*info*,*warning*,*error*,*none*}
 	Log level, used both for log output on stderr as well as
@@ -159,10 +101,6 @@ the foot command line
 *-l*,*--log-colorize*=[{*never*,*always*,*auto*}]
 	Enables or disables colorization of log output on stderr. Default:
 	_auto_.
-
-*-S*,*--log-no-syslog*
-	Disables syslog logging. Logging is only done on stderr. This
-	option can only be used in combination with *-s*,*--server*.
 
 *-v*,*--version*
 	Show the version number and quit.
@@ -511,12 +449,12 @@ output to an application of your choice (similar to the other
 *pipe-\** key bindings):
 
 	*\[key-bindings\]++
-pipe-command-output=[sh -c "f=$(mktemp); cat - > $f; footclient emacsclient -nw $f; rm $f"] Control+Shift+g*
+pipe-command-output=[sh -c "f=$(mktemp); cat - > $f; foot emacsclient -nw $f; rm $f"] Control+Shift+g*
 
 When pressing *ctrl*+*shift*+*g*, the last command's output is written
-to a temporary file, then an emacsclient is started in a new
-footclient instance. The temporary file is removed after the
-footclient instance has closed.
+to a temporary file, then an emacsclient is started in a new foot
+instance. The temporary file is removed after the foot instance has
+closed.
 
 For this to work, the shell must emit an OSC-133;C (*\\E]133;C\\E\\\\*)
 sequence before command output starts, and an OSC-133;D
@@ -642,14 +580,6 @@ In all other cases, the exit code is that of the client application
 	Used to determine the location of the configuration file, see
 	*foot.ini*(5) for details.
 
-*XDG\_RUNTIME\_DIR*
-	Used to construct the default _PATH_ for the *--server*
-	option, when no explicit argument is given (see above).
-
-*WAYLAND\_DISPLAY*
-	Used to construct the default _PATH_ for the *--server*
-	option, when no explicit argument is given (see above).
-
 *XCURSOR\_THEME*
 	The name of the *Xcursor*(3) theme to use for pointers (typically
 	set by the Wayland compositor).
@@ -698,14 +628,6 @@ The following signals have special meaning in foot:
 - SIGUSR1: switch to the dark color theme (*[colors-dark]*).
 - SIGUSR2: switch to the light color theme (*[colors-light]*).
 
-Note: you can send SIGUSR1/SIGUSR2 to a *foot --server* process too,
-in which case all client instances will switch theme. Furthermore, all
-future client instances will also use the selected theme.
-
-You can also send SIGUSR1/SIGUSR2 to a footclient instance, see
-*footclient*(1) for details.
-
-
 # BUGS
 
 Please report bugs to https://codeberg.org/dnkl/foot/issues
@@ -729,4 +651,4 @@ The report should contain the following:
 
 # SEE ALSO
 
-*foot.ini*(5), *footclient*(1)
+*foot.ini*(5)

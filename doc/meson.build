@@ -25,7 +25,6 @@ conf_data = configuration_data(
 
 foreach man_src : [{'name': 'foot', 'section' : 1},
                    {'name': 'foot.ini', 'section': 5},
-                   {'name': 'footclient', 'section': 1},
                    {'name': 'foot-ctlseqs', 'section': 7}]
   name = man_src['name']
   section = man_src['section']

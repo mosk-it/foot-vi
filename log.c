@@ -15,7 +15,6 @@
 #include "xsnprintf.h"
 
 static bool colorize = false;
-static bool do_syslog = false;
 static enum log_class log_level = LOG_CLASS_NONE;
 
 static const struct {
@@ -32,14 +31,8 @@ static const struct {
 };
 
 void
-log_init(enum log_colorize _colorize, bool _do_syslog,
-         enum log_facility syslog_facility, enum log_class _log_level)
+log_init(enum log_colorize _colorize, enum log_class _log_level)
 {
-    static const int facility_map[] = {
-        [LOG_FACILITY_USER] = LOG_USER,
-        [LOG_FACILITY_DAEMON] = LOG_DAEMON,
-    };
-
     /* Don't use colors if NO_COLOR is defined and not empty */
     const char *no_color_str = getenv("NO_COLOR");
     const bool no_color = no_color_str != NULL && no_color_str[0] != '\0';
@@ -47,26 +40,12 @@ log_init(enum log_colorize _colorize, bool _do_syslog,
     colorize = _colorize == LOG_COLORIZE_ALWAYS
                || (_colorize == LOG_COLORIZE_AUTO
                    && !no_color && isatty(STDERR_FILENO));
-    do_syslog = _do_syslog;
     log_level = _log_level;
-
-    int slvl = log_level_map[_log_level].syslog_equivalent;
-    if (slvl < 0)
-        do_syslog = false;
-
-    if (do_syslog) {
-        openlog(NULL, /*LOG_PID*/0, facility_map[syslog_facility]);
-
-        xassert(slvl >= 0);
-        setlogmask(LOG_UPTO(slvl));
-    }
 }
 
 void
 log_deinit(void)
 {
-    if (do_syslog)
-        closelog();
 }
 
 static void
@@ -100,33 +79,6 @@ _log(enum log_class log_class, const char *module, const char *file, int lineno,
     fputc('\n', stderr);
 }
 
-static void
-_sys_log(enum log_class log_class, const char *module,
-         const char UNUSED *file, int UNUSED lineno,
-         const char *fmt, int sys_errno, va_list va)
-{
-    xassert(log_class > LOG_CLASS_NONE);
-    xassert(log_class < ALEN(log_level_map));
-
-    if (!do_syslog)
-        return;
-
-    if (log_class > log_level)
-        return;
-
-    /* Map our log level to syslog's level */
-    int level = log_level_map[log_class].syslog_equivalent;
-
-    char msg[4096];
-    int n = vsnprintf(msg, sizeof(msg), fmt, va);
-    xassert(n >= 0);
-
-    if (sys_errno != 0 && (size_t)n < sizeof(msg))
-        snprintf(msg + n, sizeof(msg) - n, ": %s", strerror(sys_errno));
-
-    syslog(level, "%s: %s", module, msg);
-}
-
 void
 log_msg_va(enum log_class log_class, const char *module,
            const char *file, int lineno, const char *fmt, va_list va)
@@ -134,7 +86,6 @@ log_msg_va(enum log_class log_class, const char *module,
     va_list va2;
     va_copy(va2, va);
     _log(log_class, module, file, lineno, fmt, 0, va);
-    _sys_log(log_class, module, file, lineno, fmt, 0, va2);
     va_end(va2);
 }
 
@@ -175,7 +126,6 @@ log_errno_provided_va(enum log_class log_class, const char *module,
     va_list va2;
     va_copy(va2, va);
     _log(log_class, module, file, lineno, fmt, errno_copy, va);
-    _sys_log(log_class, module, file, lineno, fmt, errno_copy, va2);
     va_end(va2);
 }
 

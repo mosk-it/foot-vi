@@ -426,8 +426,7 @@ empty string to be set, but it must be quoted: *KEY=""*)
 *app-id*
 	Value to set the *app-id* property on the Wayland window to. The
 	compositor can use this value to e.g. group multiple windows, or
-	apply window management rules. Default: _foot_ (normal mode), or
-	_footclient_ (server mode).
+	apply window management rules. Default: _foot_.
 
 *toplevel-tag*
 	Value to set the *toplevel-tag* property on the Wayland window
@@ -577,8 +576,7 @@ Note: do not set *TERM* here; use the *term* option in the main
 		notification's actual _title_ and _body_ (message content).
 		
 		_${app-id}_ is replaced with the value of the command line
-		option _--app-id_, and defaults to *foot* (normal mode), or
-		*footclient* (server mode).
+		option _--app-id_, and defaults to *foot*.
 		
 		_${window-title}_ is replaced with the current window title.
 		
@@ -2010,13 +2008,10 @@ any of these options.
 	
 	On a normal x64 based computer, each process has 128TB of virtual
 	address space, and newer ones have 64PB. This is an insane amount
-	and most applications do not use anywhere near that amount.
-	
-	Each foot terminal window can allocate up to 2GB of virtual
-	address space. With 128TB of address space, that means a maximum
-	of 65536 windows in server/daemon mode (for 2GB). That should be
-	enough, yes?
-	
+	and most applications do not use anywhere near that amount. Each
+	foot terminal window can allocate up to 2GB of virtual
+	address space. 	
+
 	However, the Wayland compositor also needs to allocate the same
 	amount of virtual address space. Thus, it has a slightly higher
 	chance of running out of address space since it needs to host
@@ -2136,4 +2131,4 @@ any of these options.
 
 # SEE ALSO
 
-*foot*(1), *footclient*(1)
+*foot*(1)

@@ -3763,16 +3763,11 @@ term_icon(const struct terminal *term)
 {
     const char *app_id =
         term->app_id != NULL ? term->app_id : term->conf->app_id;
-
-    return
 #if 0
-term->window_icon != NULL
-        ? term->window_icon
-        :
-        #endif
-        streq(app_id, "footclient")
-            ? "foot"
-            : app_id;
+    return term->window_icon != NULL ? term->window_icon : app_id;
+#else
+    return app_id;
+#endif
 }
 
 void

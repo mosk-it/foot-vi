@@ -1560,7 +1560,7 @@ int
 main(int argc, const char *const *argv)
 {
     FcInit();
-    log_init(LOG_COLORIZE_AUTO, false, 0, LOG_CLASS_ERROR);
+    log_init(LOG_COLORIZE_AUTO, LOG_CLASS_ERROR);
     test_section_main();
     test_section_security();
     test_section_bell();
