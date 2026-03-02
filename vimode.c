@@ -1616,13 +1616,13 @@ static void execute_vimode_search_binding(struct seat *seat,
     break;
 
   case BIND_ACTION_VIMODE_SEARCH_CLIPBOARD_PASTE:
-    text_from_clipboard(seat, term, &from_clipboard_cb, &from_clipboard_done,
-                        term);
+    text_from_clipboard(seat, term, false, &from_clipboard_cb,
+                        &from_clipboard_done, term);
     break;
 
   case BIND_ACTION_VIMODE_SEARCH_PRIMARY_PASTE:
-    text_from_primary(seat, term, &from_clipboard_cb, &from_clipboard_done,
-                      term);
+    text_from_primary(seat, term, false, &from_clipboard_cb,
+                      &from_clipboard_done, term);
     break;
 
   case BIND_ACTION_VIMODE_SEARCH_UNICODE_INPUT:

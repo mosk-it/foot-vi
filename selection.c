@@ -2008,6 +2008,7 @@ struct clipboard_receive {
     int timeout_fd;
     struct itimerspec timeout;
     bool bracketed;
+    bool no_strip;
     bool quote_paths;
 
     void (*decoder)(struct clipboard_receive *ctx, char *data, size_t size);
@@ -2155,6 +2156,8 @@ static bool
 fdm_receive(struct fdm *fdm, int fd, int events, void *data)
 {
     struct clipboard_receive *ctx = data;
+    const bool no_strip = ctx->no_strip;
+    const bool bracketed = ctx->bracketed;
 
     if ((events & EPOLLHUP) && !(events & EPOLLIN))
         goto done;
@@ -2206,13 +2209,14 @@ fdm_receive(struct fdm *fdm, int fd, int events, void *data)
                 break;
 
             case '\n':
-                if (!ctx->bracketed)
+                if (!no_strip && !bracketed) {
                     p[i] = '\r';
+                }
                 break;
 
             case '\r':
                 /* Convert \r\n -> \r */
-                if (!ctx->bracketed && i + 1 < left && p[i + 1] == '\n') {
+                if (!no_strip && !bracketed && i + 1 < left && p[i + 1] == '\n') {
                     i++;
                     skip_one();
                     goto again;
@@ -2225,8 +2229,11 @@ fdm_receive(struct fdm *fdm, int fd, int events, void *data)
             case '\x11': case '\x12': case '\x13': case '\x14': case '\x15':
             case '\x16': case '\x17': case '\x18': case '\x19': case '\x1a':
             case '\x1b': case '\x1c': case '\x1d': case '\x1e': case '\x1f':
-                skip_one();
-                goto again;
+                if (!no_strip) {
+                    skip_one();
+                    goto again;
+                }
+                break;
 
             /*
              * In addition to stripping non-formatting C0 controls,
@@ -2244,7 +2251,7 @@ fdm_receive(struct fdm *fdm, int fd, int events, void *data)
              * handled above.
              */
             case '\b': case '\x7f': case '\x00':
-                if (!ctx->bracketed) {
+                if (!no_strip && !bracketed) {
                     skip_one();
                     goto again;
                 }
@@ -2265,8 +2272,8 @@ done:
 }
 
 static void
-begin_receive_clipboard(struct terminal *term, int read_fd,
-                        enum data_offer_mime_type mime_type,
+begin_receive_clipboard(struct terminal *term, bool no_strip,
+                        int read_fd, enum data_offer_mime_type mime_type,
                         void (*cb)(char *data, size_t size, void *user),
                         void (*done)(void *user), void *user)
 {
@@ -2299,6 +2306,7 @@ begin_receive_clipboard(struct terminal *term, int read_fd,
         .timeout_fd = timeout_fd,
         .timeout = timeout,
         .bracketed = term->bracketed_paste,
+        .no_strip = no_strip,
         .quote_paths = term->grid == &term->normal,
         .decoder = (mime_type == DATA_OFFER_MIME_URI_LIST
                     ? &fdm_receive_decoder_uri
@@ -2328,6 +2336,7 @@ err:
 
 void
 text_from_clipboard(struct seat *seat, struct terminal *term,
+                    bool no_strip,
                     void (*cb)(char *data, size_t size, void *user),
                     void (*done)(void *user), void *user)
 {
@@ -2360,7 +2369,8 @@ text_from_clipboard(struct seat *seat, struct terminal *term,
     /* Don't keep our copy of the write-end open (or we'll never get EOF) */
     close(write_fd);
 
-    begin_receive_clipboard(term, read_fd, clipboard->mime_type, cb, done, user);
+    begin_receive_clipboard(
+        term, no_strip, read_fd, clipboard->mime_type, cb, done, user);
 }
 
 static void
@@ -2403,7 +2413,8 @@ selection_from_clipboard(struct seat *seat, struct terminal *term, uint32_t seri
     if (term->bracketed_paste)
         term_paste_data_to_slave(term, "\033[200~", 6);
 
-    text_from_clipboard(seat, term, &receive_offer, &receive_offer_done, term);
+    text_from_clipboard(
+        seat, term, false, &receive_offer, &receive_offer_done, term);
 }
 
 bool
@@ -2472,7 +2483,7 @@ selection_to_primary(struct seat *seat, struct terminal *term, uint32_t serial)
 
 void
 text_from_primary(
-    struct seat *seat, struct terminal *term,
+    struct seat *seat, struct terminal *term, bool no_strip,
     void (*cb)(char *data, size_t size, void *user),
     void (*done)(void *user), void *user)
 {
@@ -2510,7 +2521,8 @@ text_from_primary(
     /* Don't keep our copy of the write-end open (or we'll never get EOF) */
     close(write_fd);
 
-    begin_receive_clipboard(term, read_fd, primary->mime_type, cb, done, user);
+    begin_receive_clipboard(
+        term, no_strip, read_fd, primary->mime_type, cb, done, user);
 }
 
 void
@@ -2532,7 +2544,8 @@ selection_from_primary(struct seat *seat, struct terminal *term)
     if (term->bracketed_paste)
         term_paste_data_to_slave(term, "\033[200~", 6);
 
-    text_from_primary(seat, term, &receive_offer, &receive_offer_done, term);
+    text_from_primary(
+        seat, term, false, &receive_offer, &receive_offer_done, term);
 }
 
 static void
@@ -2821,7 +2834,7 @@ drop(void *data, struct wl_data_device *wl_data_device)
         term_paste_data_to_slave(term, "\033[200~", 6);
 
     begin_receive_clipboard(
-        term, read_fd, clipboard->mime_type,
+        term, false, read_fd, clipboard->mime_type,
         &receive_dnd, &receive_dnd_done, ctx);
 
     /* data offer is now "owned" by the receive context */
