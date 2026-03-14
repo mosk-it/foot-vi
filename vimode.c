@@ -106,18 +106,17 @@ static void damage_cursor_cell(struct terminal *const term)
 static void clip_cursor_to_view(struct terminal *const term)
 {
   damage_cursor_cell(term);
-  int cursor_row = cursor_to_scrollback_relative(term, term->vimode.cursor.row);
-  int const view_row = view_to_scrollback_relative(term);
-  if (cursor_row < view_row) {
+  struct coord cursor = cursor_to_view_relative(term, term->vimode.cursor);
+  if (cursor.row < 0) {
     // Cursor is located above the current view. Move it to the top of
     // the view.
-    cursor_row = view_row;
-  } else if (cursor_row - view_row >= term->rows) {
+    cursor.row = 0;
+  } else if (cursor.row >= term->rows) {
     // Cursor is below the current view. Move it to the bottom of the
     // view.
-    cursor_row = view_row + term->rows - 1;
+    cursor.row = term->rows - 1;
   }
-  term->vimode.cursor.row = cursor_from_scrollback_relative(term, cursor_row);
+  term->vimode.cursor = cursor_from_view_relative(term, cursor);
   LOG_DBG("CLIP CURSOR (%d, %d)", term->vimode.cursor.row,
           term->vimode.cursor.col);
   damage_cursor_cell(term);
@@ -175,8 +174,9 @@ static void move_cursor_delta(struct terminal *const term,
   }
 
   term->vimode.cursor = cursor_from_view_relative(term, cursor);
-  LOG_DBG("CURSOR MOVED (%d, %d) [delta=(%d, %d)]", term->vimode.cursor.row,
-          term->vimode.cursor.col, delta.row, delta.col);
+  LOG_DBG("MOVE_CURSOR_DELTA (%d, %d) [delta=(%d, %d)]",
+          term->vimode.cursor.row, term->vimode.cursor.col, delta.row,
+          delta.col);
   damage_cursor_cell(term);
   render_refresh(term);
 }
