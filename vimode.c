@@ -441,6 +441,10 @@ void vimode_cancel(struct terminal *term)
   term->vimode.confirmed_search.buf = NULL;
   term->vimode.confirmed_search.len = 0;
   term->vimode.confirmed_search.direction = SEARCH_FORWARD;
+
+  term->vimode.waiting_for_find_char = false;
+
+
   clear_highlights(term);
   selection_cancel(term);
 
@@ -705,6 +709,57 @@ static bool find_next_from_cursor(struct terminal *const term,
 
   return find_next(term, buf, len, direction, start, end, match);
 }
+
+
+static bool find_char_on_line(struct terminal *const term, char32_t target_char, bool forward)
+{
+    struct row *row = grid_row(term->grid, term->vimode.cursor.row);
+    if (row == NULL) return false;
+
+    if (forward) {
+        for (int col = term->vimode.cursor.col + 1; col < term->cols; col++) {
+            if (row->cells[col].wc == target_char) {
+                damage_cursor_cell(term);
+                term->vimode.cursor.col = col;
+                damage_cursor_cell(term);
+                return true;
+            }
+        }
+    } else {
+        for (int col = term->vimode.cursor.col - 1; col >= 0; col--) {
+            if (row->cells[col].wc == target_char) {
+                damage_cursor_cell(term);
+                term->vimode.cursor.col = col;
+                damage_cursor_cell(term);
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+static void motion_find_char_forward(struct terminal *const term, char32_t target_char)
+{
+    if (find_char_on_line(term, target_char, true)) {
+        update_selection(term);
+        render_refresh(term);
+    }
+}
+
+static void motion_find_char_backward(struct terminal *const term, char32_t target_char)
+{
+    if (find_char_on_line(term, target_char, false)) {
+        update_selection(term);
+        render_refresh(term);
+    }
+}
+
+
+
+
+
+
+
 
 struct search_match_iterator
 search_matches_new_iter(struct terminal *const term, char32_t const *const buf,
@@ -1501,6 +1556,26 @@ static void execute_vimode_binding(struct seat *seat, struct terminal *term,
       damage_cursor_cell(term);
     break;
 
+
+case BIND_ACTION_VIMODE_FIND_CHAR_FORWARD:
+  term->vimode.waiting_for_find_char = true;
+  term->vimode.pending_find_char_direction = SEARCH_FORWARD;
+  break;
+
+case BIND_ACTION_VIMODE_FIND_CHAR_BACKWARD:
+  term->vimode.waiting_for_find_char = true;
+  term->vimode.pending_find_char_direction = SEARCH_BACKWARD;
+  break;
+
+
+
+
+
+
+
+
+
+
   case BIND_ACTION_VIMODE_COUNT:
     BUG("Invalid action type");
     break;
@@ -1803,6 +1878,49 @@ void vimode_input(struct seat *seat, struct terminal *term,
 {
   LOG_DBG("VIMODE INPUT [sym=%d/0x%x, mods=0x%08x, consumed=0x%08x]", sym, sym,
           mods, consumed);
+
+
+// pending find-char
+if (term->vimode.waiting_for_find_char && !term->vimode.searching) {
+    uint8_t buf[64] = {0};
+    int count = 0;
+
+    enum xkb_compose_status compose_status =
+        seat->kbd.xkb_compose_state != NULL
+        ? xkb_compose_state_get_status(seat->kbd.xkb_compose_state)
+        : XKB_COMPOSE_NOTHING;
+
+    if (compose_status == XKB_COMPOSE_COMPOSED) {
+        count = xkb_compose_state_get_utf8(seat->kbd.xkb_compose_state,
+                                           (char *)buf, sizeof(buf));
+        xkb_compose_state_reset(seat->kbd.xkb_compose_state);
+    } else if (compose_status == XKB_COMPOSE_NOTHING) {
+        count = xkb_state_key_get_utf8(seat->kbd.xkb_state, key, (char *)buf,
+                                       sizeof(buf));
+    }
+
+    if (count > 0) {
+        size_t c32_count = mbsntoc32(NULL, (const char *)buf, (size_t)count, 0);
+        if (c32_count == (size_t)-1) {
+            LOG_ERRNO("failed to convert input to Unicode");
+        } else if (c32_count > 0) {
+            char32_t c32;
+            mbsntoc32(&c32, (const char *)buf, (size_t)count, 1);
+            if (c32 != U'\0') {
+                if (term->vimode.pending_find_char_direction == SEARCH_FORWARD) {
+                    motion_find_char_forward(term, c32);
+                } else {
+                    motion_find_char_backward(term, c32);
+                }
+            }
+        }
+    }
+    term->vimode.waiting_for_find_char = false;
+    return;
+}
+
+
+
 
   enum xkb_compose_status compose_status =
       seat->kbd.xkb_compose_state != NULL

@@ -629,9 +629,14 @@ struct terminal {
     } selection;
 
     struct {
+
+        bool waiting_for_find_char;
+        char32_t pending_find_char_target;
+        enum search_direction pending_find_char_direction;  // or bool find_char_forward
+
         bool active;
         bool searching;
-        enum vi_mode mode;  
+        enum vi_mode mode;
         // The position of the cursor (offset relative).
         struct coord cursor;
 

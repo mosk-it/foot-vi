@@ -199,6 +199,10 @@ static const char *const vimode_binding_action_map[] = {
     [BIND_ACTION_VIMODE_ENTER_VLINE] = "vimode-enter-visual-line",
     [BIND_ACTION_VIMODE_ENTER_VBLOCK] = "vimode-enter-visual-block",
     [BIND_ACTION_VIMODE_YANK] = "vimode-yank",
+
+    // f<char> F<char>
+    [BIND_ACTION_VIMODE_FIND_CHAR_FORWARD] = "vimode-find-char-forward",
+    [BIND_ACTION_VIMODE_FIND_CHAR_BACKWARD] = "vimode-find-char-backward",
 };
 
 static const char *const vimode_search_binding_action_map[] = {
@@ -3424,6 +3428,12 @@ add_default_vimode_bindings(struct config *conf)
         {BIND_ACTION_VIMODE_ENTER_VLINE, m(XKB_MOD_NAME_SHIFT), {{XKB_KEY_v}}},
         {BIND_ACTION_VIMODE_ENTER_VBLOCK, m(XKB_MOD_NAME_CTRL), {{XKB_KEY_v}}},
         {BIND_ACTION_VIMODE_YANK, m("none"), {{XKB_KEY_y}}},
+
+        {BIND_ACTION_VIMODE_FIND_CHAR_FORWARD, m("none"), {{XKB_KEY_f}}},
+        {BIND_ACTION_VIMODE_FIND_CHAR_BACKWARD, m("none"), {{XKB_KEY_F}}},
+
+
+
     };
 
     conf->bindings.vimode.count = ALEN(bindings);
