@@ -183,6 +183,9 @@ static const char *const vimode_binding_action_map[] = {
     [BIND_ACTION_VIMODE_TEXT_BEGIN] = "vimode-text-begin",
     [BIND_ACTION_VIMODE_NEXT_WORD_BEGIN] = "vimode-next-word-begin",
     [BIND_ACTION_VIMODE_NEXT_WORD_BEGIN_BIG] = "vimode-next-word-begin-big",
+    [BIND_ACTION_VIMODE_CURSOR_TOP] = "vimode-cursor-top",
+    [BIND_ACTION_VIMODE_CURSOR_MIDDLE] = "vimode-cursor-middle",
+    [BIND_ACTION_VIMODE_CURSOR_BOTTOM] = "vimode-cursor-bottom",
     [BIND_ACTION_VIMODE_PREV_WORD_BEGIN_BIG] = "vimode-prev-word-begin-big",
     [BIND_ACTION_VIMODE_PREV_WORD_END] = "vimode-prev-word-end",
     [BIND_ACTION_VIMODE_WORD_BEGIN] = "vimode-word-begin",
@@ -3402,6 +3405,10 @@ add_default_vimode_bindings(struct config *conf)
         {BIND_ACTION_VIMODE_TEXT_BEGIN, m(XKB_MOD_NAME_SHIFT), {{XKB_KEY_6}}},
         {BIND_ACTION_VIMODE_NEXT_WORD_BEGIN, m("none"), {{XKB_KEY_w}}},
         {BIND_ACTION_VIMODE_NEXT_WORD_BEGIN_BIG, m(XKB_MOD_NAME_SHIFT), {{XKB_KEY_w}}},
+        {BIND_ACTION_VIMODE_CURSOR_TOP, m(XKB_MOD_NAME_SHIFT), {{XKB_KEY_h}}},
+        {BIND_ACTION_VIMODE_CURSOR_MIDDLE, m(XKB_MOD_NAME_SHIFT), {{XKB_KEY_m}}},
+        {BIND_ACTION_VIMODE_CURSOR_BOTTOM, m(XKB_MOD_NAME_SHIFT), {{XKB_KEY_l}}},
+
         {BIND_ACTION_VIMODE_PREV_WORD_BEGIN_BIG, m(XKB_MOD_NAME_SHIFT), {{XKB_KEY_b}}},
         // TODO (kociap): PREV_WORD_END currently unbound. By default 'ge' in vim.
         // {BIND_ACTION_VIMODE_PREV_WORD_END, m("none"), {{XKB_KEY_}}},

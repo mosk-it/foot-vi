@@ -1478,6 +1478,28 @@ static void execute_vimode_binding(struct seat *seat, struct terminal *term,
     break;
 
 
+  case BIND_ACTION_VIMODE_CURSOR_TOP:
+      damage_cursor_cell(term);
+      term->vimode.cursor.row = 0;
+      update_selection(term);
+      render_refresh(term);
+      damage_cursor_cell(term);
+    break;
+
+  case BIND_ACTION_VIMODE_CURSOR_MIDDLE:
+      damage_cursor_cell(term);
+      term->vimode.cursor.row = term->rows/2;
+      update_selection(term);
+      render_refresh(term);
+      damage_cursor_cell(term);
+    break;
+  case BIND_ACTION_VIMODE_CURSOR_BOTTOM:
+      damage_cursor_cell(term);
+      term->vimode.cursor.row = term->rows-1;
+      update_selection(term);
+      render_refresh(term);
+      damage_cursor_cell(term);
+    break;
 
   case BIND_ACTION_VIMODE_COUNT:
     BUG("Invalid action type");
