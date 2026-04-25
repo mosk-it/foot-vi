@@ -1078,6 +1078,12 @@ void motion_end_word(struct terminal *const term)
   decrement_cursor(term);
 }
 
+
+
+
+
+
+
 // Move the cursor forward to the start of a word.
 //
 void motion_fwd_begin_word(struct terminal *const term)
@@ -1107,6 +1113,67 @@ void motion_fwd_begin_word(struct terminal *const term)
     }
   }
 }
+
+void motion_fwd_begin_word_big(struct terminal *const term)
+{
+  enum c32_class const starting_class = cursor_class(term);
+  if (increment_cursor(term) == false) {
+    return;
+  }
+  // If we started on a non-blank character, skip all non-blank characters
+  // (regardless of type) to reach the end of the current WORD.
+  if (starting_class != CLASS_BLANK) {
+    while (cursor_class(term) != CLASS_BLANK) {
+      if (increment_cursor(term) == false) {
+        return;
+      }
+    }
+  }
+  // Skip whitespace. If we encounter an empty row, stop.
+  while (cursor_class(term) == CLASS_BLANK) {
+    bool const row_empty = row_length(term, term->vimode.cursor.row) == 0;
+    if (row_empty && term->vimode.cursor.col == 0) {
+      return;
+    }
+    if (increment_cursor(term) == false) {
+      return;
+    }
+  }
+}
+
+
+
+void motion_back_begin_word_big(struct terminal *const term)
+{
+  // Move to the previous character first
+  if (decrement_cursor(term) == false) {
+    return;
+  }
+
+  // Skip backward over whitespace. If we encounter an empty row, stop.
+  while (cursor_class(term) == CLASS_BLANK) {
+    bool const row_empty = row_length(term, term->vimode.cursor.row) == 0;
+    if (row_empty && term->vimode.cursor.col == 0) {
+      return;
+    }
+    if (decrement_cursor(term) == false) {
+      return;
+    }
+  }
+
+  // Skip backward over non-blank characters (the entire WORD)
+  while (cursor_class(term) != CLASS_BLANK) {
+    if (decrement_cursor(term) == false) {
+      // Hit the absolute beginning of the buffer
+      return;
+    }
+  }
+
+  // We decremented one too far (into the blank before the WORD), so
+  // move forward to land on the first character of the WORD
+  increment_cursor(term);
+}
+
 
 // Move the cursor back to the end of a word.
 //
@@ -1290,6 +1357,22 @@ static void execute_vimode_binding(struct seat *seat, struct terminal *term,
     update_selection(term);
     break;
 
+   case BIND_ACTION_VIMODE_NEXT_WORD_BEGIN_BIG:
+      damage_cursor_cell(term);
+      motion_fwd_begin_word_big(term);
+      damage_cursor_cell(term);
+      update_selection(term);
+      //update_highlights(term);
+      break;
+
+   case BIND_ACTION_VIMODE_PREV_WORD_BEGIN_BIG:
+      damage_cursor_cell(term);
+      motion_back_begin_word_big(term);
+      damage_cursor_cell(term);
+      update_selection(term);
+      //update_highlights(term);
+      break;
+
   case BIND_ACTION_VIMODE_PREV_WORD_END:
     damage_cursor_cell(term);
     motion_back_end_word(term);
@@ -1393,6 +1476,8 @@ static void execute_vimode_binding(struct seat *seat, struct terminal *term,
       term->vimode.mode = VI_MODE_NORMAL;
     }
     break;
+
+
 
   case BIND_ACTION_VIMODE_COUNT:
     BUG("Invalid action type");
