@@ -1,3 +1,11 @@
+Fork info: forked [https://codeberg.org/kociap/foot-vi](https://codeberg.org/kociap/foot-vi) (itself a fork of [dnkl/foot](https://codeberg.org/dnkl/foot)) at [2abdea51](https://codeberg.org/kociap/foot-vi/src/commit/2abdea51c9867a946888a29136852eaca8e70b8f) to extend and adjust vimode to my liking, added support for:
+- `f`/`F` to find char with `;` (next), `,` (prev)
+- `H`/`M`/`L` top/center/bottom line of window
+- `W`, `B` next/prev WORD
+
+---
+
+
 # ![Logo: a terminal with a foot shaped prompt](icons/hicolor/48x48/apps/foot.png) foot
 
 The fast, lightweight and minimalistic Wayland terminal emulator.
